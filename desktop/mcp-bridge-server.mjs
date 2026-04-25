@@ -106,9 +106,10 @@ function callToolProxy(tool, args) {
       reject(new Error(`Tool proxy connection failed: ${err.message}. Is the Myika desktop app running?`));
     });
 
-    socket.setTimeout(30000, () => {
+    // run_python can take up to 30s (timeout) + git checkpoint can be slow
+    socket.setTimeout(60000, () => {
       socket.destroy();
-      reject(new Error('Tool proxy timeout'));
+      reject(new Error('Tool proxy timeout (60s)'));
     });
   });
 }
