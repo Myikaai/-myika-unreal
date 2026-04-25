@@ -66,20 +66,31 @@ Delegates (BlueprintAssignable):
 - /MyikaBridge/Input/IA_Interact: InputAction for player interaction (E key)
 - /MyikaBridge/Input/IMC_Myika: InputMappingContext mapping E key to IA_Interact
 
-IMPORTANT: When creating a BP that uses UMyikaInteractionComponent, also ensure the player controller has IMC_Myika added. Do this via run_python as a setup step:
+These assets may not exist yet in a fresh project. Before referencing them, ALWAYS check if they exist and create them if missing via run_python:
   import unreal
-  world = unreal.EditorLevelLibrary.get_editor_world()
-  pc = unreal.GameplayStatics.get_player_controller(world, 0)
-  if pc:
-      subsystem = unreal.SubsystemBlueprintLibrary.get_local_player_subsystem(
-          unreal.EnhancedInputLocalPlayerSubsystem, pc)
-      if subsystem:
-          imc = unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IMC_Myika")
-          subsystem.add_mapping_context(imc, 0)
-This IMC setup only needs to happen once per play session.
+  asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+  # Create IA_Interact if missing
+  if not unreal.EditorAssetLibrary.does_asset_exist("/MyikaBridge/Input/IA_Interact"):
+      ia_factory = unreal.InputActionFactory()
+      ia = asset_tools.create_asset("IA_Interact", "/MyikaBridge/Input", unreal.InputAction, ia_factory)
+      ia.set_editor_property("ValueType", unreal.InputActionValueType.BOOLEAN)
+      unreal.EditorAssetLibrary.save_asset("/MyikaBridge/Input/IA_Interact")
+  # Create IMC_Myika if missing
+  if not unreal.EditorAssetLibrary.does_asset_exist("/MyikaBridge/Input/IMC_Myika"):
+      imc_factory = unreal.InputMappingContextFactory()
+      imc = asset_tools.create_asset("IMC_Myika", "/MyikaBridge/Input", unreal.InputMappingContext, imc_factory)
+      ia_ref = unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IA_Interact")
+      mapping = unreal.EnhancedActionKeyMapping()
+      mapping.set_editor_property("Action", ia_ref)
+      mapping.set_editor_property("Key", unreal.Key("E"))
+      mappings = list(imc.get_editor_property("Mappings"))
+      mappings.append(mapping)
+      imc.set_editor_property("Mappings", mappings)
+      unreal.EditorAssetLibrary.save_asset("/MyikaBridge/Input/IMC_Myika")
 
-## Meta-pattern: Asset Creation
-When a feature would require manual asset creation (Input Actions, Materials, Data Tables, etc.), prefer run_python with the appropriate UE Python API call. The UE Python API supports creating most asset types programmatically via unreal.AssetToolsHelpers.get_asset_tools().create_asset(). Manual user steps are a last resort — only fall back to them if you hit a genuine Python API limitation, and surface the limitation explicitly so we can evaluate alternatives."#;
+This asset creation step MUST be part of your plan whenever you build something that uses UMyikaInteractionComponent. Do it as the first step, before creating any BP that references these assets.
+
+IMPORTANT: When creating a BP that uses UMyikaInteractionComponent, also ensure the IMC is added to the player's Enhanced Input subsystem at runtime. Include this as a final verification note to the user: "Press E near the door to interact. If E doesn't work, the InputMappingContext may need to be added to your project's default pawn setup.""#;
 
 const MAX_TURNS: u32 = 25;
 
