@@ -4,13 +4,14 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::{sleep, Duration};
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{tungstenite::Message, tungstenite::protocol::Role, WebSocketStream};
 use uuid::Uuid;
 
-const WS_URL: &str = "ws://127.0.0.1:17645";
+const BRIDGE_HOST: &str = "127.0.0.1";
+const BRIDGE_PORT: u16 = 17645;
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 const MAX_BACKOFF_SECS: u64 = 10;
 
@@ -129,6 +130,61 @@ pub fn spawn_bridge_loop(app: &AppHandle) -> BridgeState {
     state
 }
 
+/// Perform a manual WebSocket handshake over a TCP stream.
+/// We bypass tungstenite's built-in handshake because v0.26 has a
+/// Sec-WebSocket-Accept validation issue with our UE server despite
+/// the server computing correct Accept values.
+async fn manual_ws_handshake(stream: &mut tokio::net::TcpStream) -> Result<(), String> {
+    let key_bytes: [u8; 16] = rand::random();
+    let key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, key_bytes);
+
+    let request = format!(
+        "GET / HTTP/1.1\r\n\
+         Host: {}:{}\r\n\
+         Connection: Upgrade\r\n\
+         Upgrade: websocket\r\n\
+         Sec-WebSocket-Version: 13\r\n\
+         Sec-WebSocket-Key: {}\r\n\
+         \r\n",
+        BRIDGE_HOST, BRIDGE_PORT, key
+    );
+
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|e| format!("Failed to send handshake: {}", e))?;
+
+    // Read response until \r\n\r\n
+    let mut response = Vec::with_capacity(512);
+    let mut buf = [0u8; 1];
+    loop {
+        let n = stream
+            .read(&mut buf)
+            .await
+            .map_err(|e| format!("Failed to read handshake response: {}", e))?;
+        if n == 0 {
+            return Err("Connection closed during handshake".to_string());
+        }
+        response.push(buf[0]);
+        if response.len() >= 4 && response[response.len() - 4..] == *b"\r\n\r\n" {
+            break;
+        }
+        if response.len() > 8192 {
+            return Err("Handshake response too large".to_string());
+        }
+    }
+
+    let response_str = String::from_utf8_lossy(&response);
+    if !response_str.starts_with("HTTP/1.1 101") {
+        return Err(format!(
+            "Expected 101, got: {}",
+            response_str.lines().next().unwrap_or("")
+        ));
+    }
+
+    Ok(())
+}
+
 async fn bridge_loop(
     app: AppHandle,
     status: Arc<Mutex<BridgeStatus>>,
@@ -138,16 +194,29 @@ async fn bridge_loop(
 
     loop {
         set_status(&status, BridgeStatus::Connecting, &app).await;
-        log::info!("Connecting to UE bridge at {}", WS_URL);
+        log::info!("Connecting to UE bridge at {}:{}", BRIDGE_HOST, BRIDGE_PORT);
 
-        match connect_async(WS_URL).await {
-            Ok((ws_stream, _)) => {
+        let result = async {
+            let mut tcp_stream =
+                tokio::net::TcpStream::connect(format!("{}:{}", BRIDGE_HOST, BRIDGE_PORT))
+                    .await
+                    .map_err(|e| format!("TCP connect failed: {}", e))?;
+
+            manual_ws_handshake(&mut tcp_stream).await?;
+
+            let ws_stream =
+                WebSocketStream::from_raw_socket(tcp_stream, Role::Client, None).await;
+            Ok::<_, String>(ws_stream)
+        }
+        .await;
+
+        match result {
+            Ok(ws_stream) => {
                 log::info!("Connected to UE bridge");
-                backoff_secs = 1; // Reset backoff on successful connect
+                backoff_secs = 1;
 
                 handle_connection(ws_stream, &app, &status, &mut cmd_rx).await;
 
-                // Connection ended - set disconnected
                 set_status(&status, BridgeStatus::Disconnected, &app).await;
                 log::info!("Disconnected from UE bridge, will retry...");
             }
@@ -164,7 +233,7 @@ async fn bridge_loop(
 }
 
 async fn handle_connection(
-    ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    ws_stream: WebSocketStream<tokio::net::TcpStream>,
     app: &AppHandle,
     status: &Arc<Mutex<BridgeStatus>>,
     cmd_rx: &mut mpsc::Receiver<BridgeCommand>,
@@ -226,7 +295,6 @@ async fn handle_connection(
                         }
                     }
                     None => {
-                        // Command channel closed, app is shutting down
                         log::info!("Command channel closed");
                         break;
                     }
@@ -263,7 +331,6 @@ async fn handle_message(
             handle_event(&envelope, app, status).await;
         }
         "response" => {
-            // Correlate with pending request
             let mut pending = pending_requests.lock().await;
             if let Some(sender) = pending.remove(&envelope.id) {
                 let _ = sender.send(envelope.payload);
