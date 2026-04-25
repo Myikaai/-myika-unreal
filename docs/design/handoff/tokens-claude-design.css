@@ -1,0 +1,512 @@
+/* Myika for Unreal — production tokens v2.
+ * Source of truth: DESIGN_SYSTEM.md.
+ *
+ * v2 priorities:
+ *  • Cool-tilted base (#0A0B0D, not pure neutral)
+ *  • Layered surfaces with inner top highlights ("light from above")
+ *  • Multi-layer drop shadows for elevation, near-invisible borders
+ *  • Refined accent system (default / soft / glow / deep)
+ *  • Inset shadows for recessed elements (composers, inputs, recessed cards)
+ *  • Status colors warmed/dusted, never crayon
+ *  • SMALL CAPS section labels, tabular-nums for technical readouts
+ */
+
+:root {
+  /* ── 1.1 Backgrounds — cool tilt, layered ────────── */
+  --color-bg-void:     #07080A;   /* deeper than base — used for insets */
+  --color-bg-base:     #0A0B0D;
+  --color-bg-surface:  #111316;   /* +4-6% — chat column, settings content */
+  --color-bg-elevated: #161A1E;   /* +8% — cards, modals base */
+  --color-bg-raised:   #1C2126;   /* +10-12% — chips, raised buttons, hover */
+  --color-bg-overlay:  rgba(4, 6, 8, 0.72);
+
+  /* Accent-tinted surfaces — used for plan card frame, "running" chip bg */
+  --color-bg-accent-deep: #0B1410;     /* very dark green-tinted near-black */
+  --color-bg-accent-soft: rgba(74, 222, 128, 0.07);
+  --color-bg-danger-soft: rgba(232, 113, 113, 0.07);
+  --color-bg-warning-soft: rgba(234, 179, 8, 0.07);
+
+  /* ── 1.2 Borders — nearly invisible, depth via shadow ── */
+  --color-border-subtle:  rgba(255, 255, 255, 0.04);
+  --color-border-default: rgba(255, 255, 255, 0.07);
+  --color-border-strong:  rgba(255, 255, 255, 0.12);
+  --color-border-accent:  rgba(74, 222, 128, 0.32);
+  --color-border-danger:  rgba(232, 113, 113, 0.32);
+
+  /* Inner highlight on top edge of surfaces — "light from above" */
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --highlight-top-strong: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* ── 1.3 Text ─────────────────────────────────────── */
+  --color-text-primary:    #E8EAED;
+  --color-text-secondary:  #9AA0A6;
+  --color-text-muted:      #6B7177;
+  --color-text-disabled:   #4A4F54;
+  --color-text-accent:     #6EE7A0;   /* slightly brighter than border-accent */
+  --color-text-on-accent:  #07120C;
+  --color-text-danger:     #F0A0A0;
+  --color-text-warning:    #F2C766;
+
+  /* ── 1.4 Accent — refined sage-phosphor ─────────────
+   * Confident, not aggressive. Sits between #4ADE80 and #5EEAD4
+   * but leans into the green. Real values picked by hand. */
+  --color-accent-default: #4ADE80;     /* "phosphor sage" */
+  --color-accent-hover:   #5BE990;
+  --color-accent-active:  #3DC772;
+  --color-accent-soft:    rgba(74, 222, 128, 0.10);
+  --color-accent-soft-2:  rgba(74, 222, 128, 0.18);
+  --color-accent-glow:    rgba(110, 231, 160, 0.55);  /* lighter, more sat — for hover/active glow only */
+  --color-accent-deep:    #0B1410;     /* near-black, green-tinted */
+  --color-accent-ring:    rgba(74, 222, 128, 0.28);
+
+  /* ── 1.5 Status — refined, never crayon ───────────── */
+  --color-success-default: #5BD68A;    /* slightly warmer than accent */
+  --color-success-soft:    rgba(91, 214, 138, 0.08);
+  --color-warning-default: #EAB308;    /* amber, not yellow */
+  --color-warning-soft:    rgba(234, 179, 8, 0.08);
+  --color-danger-default:  #E87171;    /* dusty red, not fire-engine */
+  --color-danger-hover:    #ED8484;
+  --color-danger-soft:     rgba(232, 113, 113, 0.08);
+  --color-danger-ring:     rgba(232, 113, 113, 0.28);
+  --color-info-default:    #7AA9D6;    /* desaturated, not Twitter */
+  --color-neutral-default: #9AA0A6;
+
+  /* ── 1.6 Syntax ───────────────────────────────────── */
+  --color-syntax-plain:    #E8EAED;
+  --color-syntax-keyword:  #C58FF0;
+  --color-syntax-string:   #88E0A8;
+  --color-syntax-number:   #F2C766;
+  --color-syntax-comment:  #6B7177;
+  --color-syntax-function: #7AA9D6;
+  --color-syntax-property: #5EEAD4;
+
+  /* ── 1.7 Diff ─────────────────────────────────────── */
+  --color-diff-added:      #5BD68A;
+  --color-diff-added-bg:   rgba(91, 214, 138, 0.07);
+  --color-diff-removed:    #E87171;
+  --color-diff-removed-bg: rgba(232, 113, 113, 0.07);
+  --color-diff-modified:   #EAB308;
+
+  /* ── 2 Typography ─────────────────────────────────── */
+  --font-ui:   'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ── 3 Spacing ────────────────────────────────────── */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ── 4 Radius ─────────────────────────────────────── */
+  --radius-none: 0;
+  --radius-sm:   3px;
+  --radius-md:   5px;
+  --radius-lg:   7px;
+  --radius-xl:   10px;
+  --radius-full: 9999px;
+
+  /* ── 5 Shadows — multi-layer, depth via tonal layering ── */
+  --shadow-none:  none;
+  --shadow-sm:    0 1px 2px rgba(0, 0, 0, 0.40);
+  --shadow-md:    0 1px 2px rgba(0, 0, 0, 0.40), 0 4px 12px rgba(0, 0, 0, 0.32);
+  --shadow-lg:    0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px rgba(0, 0, 0, 0.50);
+  --shadow-xl:    0 2px 4px rgba(0, 0, 0, 0.50), 0 16px 40px rgba(0, 0, 0, 0.60), inset 0 1px 0 rgba(255,255,255,0.05);
+  --shadow-modal: 0 4px 8px rgba(0, 0, 0, 0.40), 0 24px 64px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255,255,255,0.06);
+
+  /* Inset shadow for recessed surfaces (composers, inputs, recessed panels) */
+  --shadow-inset:    inset 0 1px 2px rgba(0, 0, 0, 0.50);
+  --shadow-inset-sm: inset 0 1px 1px rgba(0, 0, 0, 0.40);
+
+  /* Accent glows */
+  --shadow-glow-accent:  0 0 0 3px rgba(74, 222, 128, 0.20);
+  --shadow-glow-bottom:  0 1px 0 rgba(74, 222, 128, 0.20);     /* button at rest */
+  --shadow-glow-bottom-hover: 0 4px 0 -2px rgba(110, 231, 160, 0.40); /* button on hover */
+  --shadow-glow-danger:  0 0 0 3px rgba(232, 113, 113, 0.20);
+
+  /* ── 6 Motion ─────────────────────────────────────── */
+  --motion-instant:  0ms;
+  --motion-fast:     100ms;
+  --motion-default:  150ms;
+  --motion-slow:     250ms;
+  --motion-pulse:    1800ms;
+  --motion-typing:   1300ms;
+  --motion-heartbeat: 2000ms;
+  --ease-linear:  linear;
+  --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:  cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Base resets ───────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+code, pre, .mono { font-family: var(--font-mono); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ── Composite type classes (§2.1) ─────────────────── */
+.t-display    { font-family: var(--font-ui); font-size: 30px; font-weight: 600; line-height: 1.15; letter-spacing: -0.022em; }
+.t-h1         { font-family: var(--font-ui); font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -0.012em; }
+.t-h2         { font-family: var(--font-ui); font-size: 16px; font-weight: 600; line-height: 1.35; letter-spacing: -0.006em; }
+.t-h3         { font-family: var(--font-ui); font-size: 14px; font-weight: 600; line-height: 1.4; }
+.t-body-lg    { font-family: var(--font-ui); font-size: 14px; font-weight: 400; line-height: 1.55; }
+.t-body       { font-family: var(--font-ui); font-size: 13px; font-weight: 400; line-height: 1.5; }
+.t-body-sm    { font-family: var(--font-ui); font-size: 12px; font-weight: 400; line-height: 1.5; }
+.t-label      { font-family: var(--font-ui); font-size: 12px; font-weight: 500; line-height: 1.4; }
+.t-caption    { font-family: var(--font-ui); font-size: 11px; font-weight: 400; line-height: 1.4; }
+
+/* SMALL CAPS section label — the polish move */
+.t-eyebrow {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  opacity: 0.85;
+}
+.t-eyebrow--mono {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.t-mono-lg    { font-family: var(--font-mono); font-size: 13px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.t-mono       { font-family: var(--font-mono); font-size: 12px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.t-mono-sm    { font-family: var(--font-mono); font-size: 11px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.t-mono-micro { font-family: var(--font-mono); font-size: 10px; font-weight: 500; line-height: 1.3; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+
+/* Color helpers */
+.c-primary   { color: var(--color-text-primary); }
+.c-secondary { color: var(--color-text-secondary); }
+.c-muted     { color: var(--color-text-muted); }
+.c-disabled  { color: var(--color-text-disabled); }
+.c-accent    { color: var(--color-text-accent); }
+.c-danger    { color: var(--color-text-danger); }
+.c-warning   { color: var(--color-text-warning); }
+
+/* ── Surfaces ──────────────────────────────────────── */
+.surface {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--highlight-top), var(--shadow-md);
+}
+.surface--raised {
+  background: var(--color-bg-raised);
+  box-shadow: var(--highlight-top-strong), var(--shadow-lg);
+}
+.surface--inset {
+  background: var(--color-bg-void);
+  box-shadow: var(--shadow-inset);
+  border: 1px solid var(--color-border-subtle);
+}
+.surface--modal {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-modal);
+}
+.surface--accent {
+  background: var(--color-bg-accent-deep);
+  border: 1px solid var(--color-border-accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--highlight-top), var(--shadow-md);
+}
+
+/* ── Buttons (§7.1) — primary has bottom-edge glow ───── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  height: 32px; padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-family: var(--font-ui); font-size: 13px; font-weight: 500;
+  cursor: pointer; user-select: none;
+  position: relative;
+  transition: background var(--motion-fast) var(--ease-out),
+              border-color var(--motion-fast) var(--ease-out),
+              color var(--motion-fast) var(--ease-out),
+              box-shadow var(--motion-default) var(--ease-out),
+              transform var(--motion-fast) var(--ease-out);
+}
+.btn:focus-visible { outline: 2px solid var(--color-accent-ring); outline-offset: 2px; }
+.btn--lg { height: 36px; padding: 0 var(--space-5); }
+
+/* PRIMARY — at-rest bottom-edge glow, hover deepens it */
+.btn--primary {
+  background: var(--color-accent-default);
+  color: var(--color-text-on-accent);
+  border-color: var(--color-accent-default);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    0 1px 2px rgba(0,0,0,0.30),
+    0 2px 8px -2px rgba(74, 222, 128, 0.35);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.22),
+    0 1px 2px rgba(0,0,0,0.30),
+    0 6px 18px -2px rgba(110, 231, 160, 0.55);
+}
+.btn--primary:active:not(:disabled) {
+  background: var(--color-accent-active);
+  border-color: var(--color-accent-active);
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.10),
+    0 1px 2px rgba(0,0,0,0.30),
+    0 2px 6px -2px rgba(74, 222, 128, 0.30);
+}
+
+.btn--secondary {
+  background: var(--color-bg-raised);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-default);
+  box-shadow: var(--highlight-top), 0 1px 2px rgba(0,0,0,0.30);
+}
+.btn--secondary:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-elevated);
+}
+
+.btn--destructive {
+  background: transparent;
+  color: var(--color-text-danger);
+  border-color: var(--color-border-danger);
+}
+.btn--destructive:hover:not(:disabled) {
+  background: var(--color-bg-danger-soft);
+  border-color: var(--color-danger-default);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border-default);
+}
+.btn--ghost:hover:not(:disabled) { color: var(--color-text-primary); border-color: var(--color-border-strong); }
+
+.btn--icon {
+  width: 28px; height: 28px; padding: 0;
+  background: transparent; color: var(--color-text-secondary);
+  border-color: transparent; box-shadow: none;
+}
+.btn--icon:hover:not(:disabled) {
+  background: var(--color-bg-raised);
+  color: var(--color-text-primary);
+}
+
+.btn:disabled { color: var(--color-text-disabled); cursor: not-allowed; background: var(--color-bg-elevated); border-color: var(--color-border-subtle); box-shadow: none; }
+.btn--primary:disabled { background: var(--color-bg-raised); color: var(--color-text-disabled); border-color: transparent; }
+
+/* ── Inputs (§7.2) — INSET ────────────────────────── */
+.input {
+  display: block; width: 100%;
+  height: 32px; padding: 0 var(--space-3);
+  background: var(--color-bg-void);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  font-family: var(--font-ui); font-size: 13px;
+  box-shadow: var(--shadow-inset-sm);
+  transition: border-color var(--motion-fast) var(--ease-out),
+              box-shadow var(--motion-fast) var(--ease-out);
+}
+.input::placeholder { color: var(--color-text-muted); }
+.input:focus-visible {
+  outline: none;
+  border-color: var(--color-border-accent);
+  box-shadow: var(--shadow-inset-sm), 0 0 0 3px var(--color-accent-ring);
+}
+.input--mono { font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.input--sm   { height: 28px; }
+
+/* ── Cards ─────────────────────────────────────────── */
+.card {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--highlight-top), var(--shadow-md);
+}
+
+/* ── Pulse dot (§7.5) — used in tiny inline contexts ── */
+.pulse-dot {
+  display: inline-block;
+  width: 8px; height: 8px; border-radius: var(--radius-full);
+  background: var(--color-accent-default);
+  animation: pulseDot var(--motion-pulse) var(--ease-linear) infinite;
+}
+.pulse-dot--danger  { background: var(--color-danger-default); animation-name: pulseDotDanger; }
+.pulse-dot--neutral { background: var(--color-neutral-default); animation: none; }
+@keyframes pulseDot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.45); }
+  50%      { box-shadow: 0 0 0 4px rgba(74, 222, 128, 0); }
+}
+@keyframes pulseDotDanger {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 113, 113, 0.45); }
+  50%      { box-shadow: 0 0 0 4px rgba(232, 113, 113, 0); }
+}
+
+/* ── Heartbeat (signature piece) ──────────────────── */
+.heartbeat {
+  position: relative; display: inline-block;
+  width: 12px; height: 12px;
+}
+.heartbeat__core {
+  position: absolute; inset: 4px;
+  border-radius: 50%;
+  background: var(--color-accent-default);
+  box-shadow: 0 0 6px rgba(110, 231, 160, 0.55);
+}
+.heartbeat__ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-accent-default);
+  animation: heartbeatRing var(--motion-heartbeat) var(--ease-out) infinite;
+}
+.heartbeat--danger .heartbeat__core { background: var(--color-danger-default); box-shadow: 0 0 6px rgba(232,113,113,0.55); }
+.heartbeat--danger .heartbeat__ring { border-color: var(--color-danger-default); animation-name: heartbeatRingDanger; }
+.heartbeat--neutral .heartbeat__core { background: var(--color-neutral-default); box-shadow: none; }
+.heartbeat--neutral .heartbeat__ring { display: none; }
+
+@keyframes heartbeatRing {
+  0%   { transform: scale(0.85); opacity: 0.85; }
+  60%  { transform: scale(1.6);  opacity: 0; }
+  100% { transform: scale(1.6);  opacity: 0; }
+}
+@keyframes heartbeatRingDanger {
+  0%   { transform: scale(0.85); opacity: 0.85; border-color: var(--color-danger-default); }
+  60%  { transform: scale(1.6);  opacity: 0; }
+  100% { transform: scale(1.6);  opacity: 0; }
+}
+
+/* Kbd */
+.kbd {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 10px; line-height: 1;
+  padding: 2px var(--space-1);
+  background: var(--color-bg-void);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-inset-sm);
+}
+
+/* Capability badge */
+.cap {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px var(--space-2); border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+  background: rgba(255,255,255,0.015);
+}
+.cap--read  { color: var(--color-text-secondary); }
+.cap--write { color: var(--color-text-warning); border-color: rgba(234,179,8,0.24); background: var(--color-bg-warning-soft); }
+.cap--exec  { color: var(--color-text-danger);  border-color: rgba(232,113,113,0.24); background: var(--color-bg-danger-soft); }
+
+/* State pill */
+.pill {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  padding: 1px var(--space-2); border-radius: var(--radius-full);
+  border: 1px solid var(--color-border-default); color: var(--color-text-secondary);
+  background: rgba(255,255,255,0.015);
+}
+.pill--warning { color: var(--color-text-warning); border-color: rgba(234,179,8,0.24); background: var(--color-bg-warning-soft); }
+.pill--accent  { color: var(--color-text-accent); border-color: var(--color-border-accent); background: var(--color-accent-soft); }
+.pill--danger  { color: var(--color-text-danger); border-color: rgba(232,113,113,0.24); background: var(--color-bg-danger-soft); }
+
+/* ── Tool chip (running has scanline + progress) ─── */
+.tool-chip {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 2px var(--space-2) 2px var(--space-2);
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--color-text-primary);
+  box-shadow: var(--highlight-top);
+  position: relative;
+  overflow: hidden;
+}
+.tool-chip__dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.tool-chip--done    .tool-chip__dot { background: var(--color-success-default); }
+.tool-chip--running .tool-chip__dot { background: var(--color-warning-default); animation: pulseDot var(--motion-pulse) var(--ease-linear) infinite; }
+.tool-chip--err     .tool-chip__dot { background: var(--color-danger-default); }
+.tool-chip--running {
+  border-color: rgba(234,179,8,0.20);
+}
+/* Scanline — barely visible horizontal line at mid-chip on running */
+.tool-chip--running::before {
+  content: '';
+  position: absolute; left: 0; right: 0;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06) 30%, rgba(255,255,255,0.06) 70%, transparent);
+  pointer-events: none;
+}
+/* Progress bar at the bottom edge on running */
+.tool-chip--running::after {
+  content: '';
+  position: absolute; left: 0; bottom: 0;
+  height: 1px; width: 60%;
+  background: linear-gradient(90deg, transparent, var(--color-warning-default));
+  pointer-events: none;
+  animation: chipProgress 1400ms var(--ease-in-out) infinite;
+}
+@keyframes chipProgress {
+  0%   { transform: translateX(-100%); width: 30%; }
+  50%  { width: 60%; }
+  100% { transform: translateX(180%); width: 30%; }
+}
+
+/* ── Streaming fade trail ──────────────────────────
+ * Wrap the last few words: [trail-3][trail-2][trail-1][cursor]
+ * Older = full opacity, newer = lower. */
+.fade-trail-3 { opacity: 1.0; }
+.fade-trail-2 { opacity: 0.80; }
+.fade-trail-1 { opacity: 0.55; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: var(--radius-md); }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Typing dot */
+.typing-dots { display: inline-flex; gap: 3px; align-items: center; }
+.typing-dots span { width: 4px; height: 4px; border-radius: var(--radius-full); background: var(--color-text-muted); animation: typingDot var(--motion-typing) var(--ease-linear) infinite; }
+.typing-dots span:nth-child(2) { animation-delay: 130ms; }
+.typing-dots span:nth-child(3) { animation-delay: 260ms; }
+@keyframes typingDot { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+/* Cursor blink */
+.cursor { display: inline-block; width: 7px; height: 1em; vertical-align: text-bottom; background: var(--color-accent-default); margin-left: 2px; animation: blink 1s steps(2) infinite; box-shadow: 0 0 6px rgba(110,231,160,0.45); }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0ms !important; transition-duration: 0ms !important; }
+  .pulse-dot, .heartbeat__ring { opacity: 0.85; }
+}

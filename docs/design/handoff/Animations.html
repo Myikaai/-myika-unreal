@@ -1,0 +1,1053 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Myika · Animations</title>
+<link rel="stylesheet" href="production/tokens.css" />
+<link rel="stylesheet" href="animations/animations.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body {
+    background: var(--color-bg-base);
+    min-height: 100vh;
+    padding: 48px 56px 96px;
+    padding-right: 360px; /* leave room for tweaks panel */
+  }
+  .page-head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    border-bottom: 1px solid var(--color-border-subtle);
+    padding-bottom: 20px; margin-bottom: 40px;
+  }
+  .page-head h1 {
+    margin: 0;
+    font-family: var(--font-ui);
+    font-size: 22px; font-weight: 600;
+    letter-spacing: -0.012em;
+  }
+  .crumbs {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-muted);
+    letter-spacing: 0.04em;
+  }
+  .crumbs span + span::before { content: " / "; opacity: 0.5; padding: 0 4px; }
+
+  .lockup { display: flex; align-items: center; gap: 12px; }
+  .lockup .mark { color: var(--color-accent-default); }
+  .lockup .word {
+    font-family: var(--font-ui);
+    font-size: 18px; font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .lockup .word .for { color: var(--color-text-muted); font-weight: 400; }
+
+  .grid-anims {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+  }
+  @media (max-width: 1280px) { .grid-anims { grid-template-columns: 1fr; } }
+
+  .anim-card {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 7px;
+    box-shadow: var(--highlight-top), var(--shadow-md);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .anim-card.full { grid-column: 1 / -1; }
+
+  .anim-head {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .anim-head .num {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.10em;
+    color: var(--color-text-muted);
+  }
+  .anim-head h3 {
+    margin: 0;
+    font-family: var(--font-ui); font-size: 13px; font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .anim-head .sig {
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.10em; text-transform: uppercase;
+    color: var(--color-accent-default);
+    padding: 2px 6px;
+    border: 1px solid var(--color-border-accent);
+    border-radius: 9999px;
+    background: var(--color-accent-soft);
+  }
+  .anim-head .toolbar {
+    margin-left: auto;
+    display: flex; gap: 6px;
+  }
+  .toolbar button {
+    background: transparent;
+    border: 1px solid var(--color-border-default);
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono); font-size: 10px;
+    cursor: pointer;
+    transition: border 100ms, color 100ms;
+  }
+  .toolbar button:hover { color: var(--color-text-primary); border-color: var(--color-border-strong); }
+  .toolbar button.is-on { color: var(--color-text-accent); border-color: var(--color-border-accent); background: var(--color-accent-soft); }
+
+  .anim-stage {
+    padding: 32px 18px;
+    background:
+      linear-gradient(var(--color-bg-base), var(--color-bg-base)) padding-box,
+      repeating-linear-gradient(45deg, rgba(255,255,255,0.012) 0 8px, transparent 8px 16px);
+    min-height: 140px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .anim-stage.tall { min-height: 200px; align-items: stretch; }
+
+  .anim-meta {
+    padding: 10px 18px;
+    border-top: 1px solid var(--color-border-subtle);
+    display: flex; gap: 18px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--color-text-muted);
+    letter-spacing: 0.04em;
+  }
+  .anim-meta b { color: var(--color-text-secondary); font-weight: 500; }
+  .anim-meta .reduced {
+    margin-left: auto; color: var(--color-warning-default);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .anim-meta .reduced::before {
+    content: ''; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--color-warning-default);
+  }
+
+  /* keyframes overlay (toggled on .show-frames) */
+  .frames {
+    display: none;
+    position: absolute; inset: 0;
+    padding: 20px;
+    background: rgba(7,8,10,0.86);
+    backdrop-filter: blur(2px);
+    flex-direction: column; gap: 12px;
+  }
+  .anim-card.show-frames .frames { display: flex; }
+  .anim-card.show-frames .live { opacity: 0.05; pointer-events: none; }
+  .frames-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    flex: 1;
+  }
+  .frame {
+    background: var(--color-bg-base);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 5px;
+    padding: 12px 10px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted);
+    text-align: center;
+    justify-content: space-between;
+  }
+  .frame .frame-vis { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .frame .frame-meta { color: var(--color-text-secondary); }
+  .frame .pct { color: var(--color-accent-default); }
+
+  /* ── stage demos ── */
+  /* Heartbeat row */
+  .hb-row {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    width: 100%; gap: 18px;
+  }
+  .hb-cell {
+    display: flex; flex-direction: column; align-items: center; gap: 14px;
+    padding: 12px 0;
+  }
+  .hb-cell .label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.10em; text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+  .hb-cell .label.live { color: var(--color-text-accent); }
+  .hb-cell .label.busy { color: var(--color-warning-default); }
+  .hb-cell .label.dead { color: var(--color-text-danger); }
+
+  /* Streaming demo */
+  .stream-demo {
+    width: 100%;
+    font-family: var(--font-ui); font-size: 14px; line-height: 1.6;
+    color: var(--color-text-primary);
+    max-width: 520px;
+  }
+  .stream-demo .preface {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--color-text-muted);
+    letter-spacing: 0.10em; text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  /* Tool chip demo */
+  .chip-row {
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: flex-start;
+  }
+  .chip-row .label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.10em; text-transform: uppercase;
+    color: var(--color-text-muted);
+    min-width: 80px;
+  }
+  .chip-line { display: flex; align-items: center; gap: 14px; }
+
+  /* Plan demo */
+  .plan-demo {
+    width: 100%; max-width: 460px;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-accent);
+    border-radius: 7px;
+    box-shadow: var(--highlight-top), var(--shadow-md);
+    overflow: hidden;
+  }
+  .plan-demo .h {
+    background: var(--color-bg-accent-soft);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-border-subtle);
+    display: flex; gap: 8px; align-items: center;
+    font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .plan-demo .h .pill-accent {
+    margin-left: auto;
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.10em; text-transform: uppercase;
+    color: var(--color-text-accent);
+    padding: 1px 6px;
+    border: 1px solid var(--color-border-accent);
+    border-radius: 9999px;
+    background: var(--color-accent-soft);
+  }
+  .plan-demo ol { list-style: none; margin: 0; padding: 8px 0; }
+  .plan-demo li {
+    padding: 8px 14px;
+    font-family: var(--font-ui); font-size: 13px;
+    color: var(--color-text-primary);
+    display: flex; gap: 10px; align-items: center;
+  }
+  .plan-demo li .num {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 1px solid var(--color-border-default);
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono); font-size: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* Modal demo */
+  .modal-demo-host {
+    position: relative;
+    width: 100%; min-height: 180px;
+    background: var(--color-bg-surface);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .modal-demo-host::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(transparent 0 19px, rgba(255,255,255,0.035) 19px 20px);
+    opacity: 0.7;
+  }
+  .modal-bd {
+    position: absolute; inset: 0;
+    background: rgba(4,6,8,0.65);
+    backdrop-filter: blur(2px);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-bx {
+    width: 78%; max-width: 360px;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-default);
+    border-radius: 8px;
+    box-shadow: var(--shadow-modal);
+    padding: 16px 16px 14px;
+  }
+  .modal-bx .t {
+    font-family: var(--font-ui); font-size: 13px; font-weight: 600;
+    color: var(--color-text-primary);
+    margin-bottom: 6px;
+  }
+  .modal-bx .b {
+    font-family: var(--font-ui); font-size: 12px; line-height: 1.5;
+    color: var(--color-text-secondary);
+    margin-bottom: 14px;
+  }
+  .modal-bx .row {
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+
+  /* Composer demo */
+  .composer-demo {
+    width: 100%; max-width: 520px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .composer-shell {
+    display: flex; align-items: flex-end;
+    padding: 8px 8px 8px 12px;
+    gap: 8px;
+  }
+  .composer-shell textarea {
+    flex: 1;
+    background: transparent; border: 0; outline: none; resize: none;
+    color: var(--color-text-primary);
+    font-family: var(--font-ui); font-size: 13px;
+    min-height: 28px; max-height: 100px;
+    padding: 4px 0;
+  }
+  .composer-shell textarea::placeholder { color: var(--color-text-muted); }
+
+  /* Status pill demo */
+  .pillbox {
+    display: flex; gap: 12px; align-items: center;
+  }
+  .pp {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+    padding: 2px 8px; border-radius: 9999px;
+    border: 1px solid var(--color-border-default); color: var(--color-text-secondary);
+    background: rgba(255,255,255,0.015);
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .pp.queued  { /* default */ }
+  .pp.running { color: var(--color-warning-default); border-color: rgba(234,179,8,0.24); background: var(--color-bg-warning-soft); }
+  .pp.done    { color: var(--color-text-accent); border-color: var(--color-border-accent); background: var(--color-accent-soft); }
+  .pp.fail    { color: var(--color-text-danger); border-color: rgba(232,113,113,0.24); background: var(--color-bg-danger-soft); }
+
+  /* User msg demo */
+  .msg-user {
+    background: var(--color-bg-raised);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 7px;
+    padding: 8px 12px;
+    font-family: var(--font-ui); font-size: 13px;
+    color: var(--color-text-primary);
+    align-self: flex-end;
+    max-width: 70%;
+    box-shadow: var(--highlight-top);
+  }
+
+  /* Tweaks panel */
+  .tweaks-panel {
+    position: fixed; top: 24px; right: 24px;
+    width: 304px;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-default);
+    border-radius: 8px;
+    box-shadow: var(--shadow-modal);
+    padding: 14px 14px 16px;
+    z-index: 50;
+    font-family: var(--font-ui);
+  }
+  .tweaks-panel .head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .tweaks-panel .head .title {
+    font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+    color: var(--color-text-primary);
+  }
+  .tweaks-panel .head .meta {
+    margin-left: auto;
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: 0.10em; text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+  .tweak-row {
+    display: flex; flex-direction: column; gap: 6px;
+    margin-bottom: 12px;
+  }
+  .tweak-row .top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-family: var(--font-ui); font-size: 11px;
+    color: var(--color-text-secondary);
+  }
+  .tweak-row .top .val {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .tweak-row input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 14px;
+    background: transparent; cursor: pointer;
+  }
+  .tweak-row input[type=range]::-webkit-slider-runnable-track {
+    height: 3px; background: var(--color-bg-void);
+    border: 1px solid var(--color-border-default);
+    border-radius: 9999px;
+  }
+  .tweak-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    background: var(--color-accent-default);
+    border-radius: 50%;
+    margin-top: -5px;
+    box-shadow: 0 0 0 3px rgba(74,222,128,0.20);
+  }
+  .tweak-row input[type=range]::-moz-range-track {
+    height: 3px; background: var(--color-bg-void);
+    border: 1px solid var(--color-border-default);
+    border-radius: 9999px;
+  }
+  .tweak-row input[type=range]::-moz-range-thumb {
+    width: 12px; height: 12px; border: 0;
+    background: var(--color-accent-default); border-radius: 50%;
+  }
+
+  .toggle-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid var(--color-border-subtle);
+    margin-top: 4px;
+  }
+  .toggle-row .tlabel {
+    font-family: var(--font-ui); font-size: 11px;
+    color: var(--color-text-secondary);
+  }
+  .toggle-row .thint {
+    margin-top: 2px;
+    font-family: var(--font-mono); font-size: 9px;
+    color: var(--color-text-muted);
+    letter-spacing: 0.04em;
+  }
+  .toggle-row .grow { flex: 1; }
+  .switch {
+    width: 28px; height: 16px;
+    background: var(--color-bg-raised);
+    border-radius: 9999px;
+    border: 1px solid var(--color-border-default);
+    position: relative; cursor: pointer;
+    transition: background 100ms;
+  }
+  .switch::after {
+    content: '';
+    position: absolute; top: 1px; left: 1px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+    transition: transform 120ms var(--ease-out), background 100ms;
+  }
+  .switch.on { background: var(--color-accent-default); border-color: var(--color-accent-default); }
+  .switch.on::after { transform: translateX(12px); background: #07120C; }
+
+  .reset-btn {
+    width: 100%; margin-top: 6px;
+    background: transparent;
+    border: 1px solid var(--color-border-default);
+    border-radius: 5px;
+    padding: 7px 10px;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    cursor: pointer;
+    transition: color 100ms, border 100ms;
+  }
+  .reset-btn:hover { color: var(--color-text-primary); border-color: var(--color-border-strong); }
+
+  footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--color-border-subtle);
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--color-text-muted);
+    letter-spacing: 0.04em;
+    display: flex; justify-content: space-between;
+  }
+  footer a {
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  footer a:hover { color: var(--color-text-primary); }
+
+  /* Reduced-motion simulator (host-controlled, not the OS pref) */
+  .reduced-sim .heartbeat__ring { display: none !important; }
+  .reduced-sim .cursor { animation: none !important; opacity: 1 !important; }
+  .reduced-sim .tool-chip--running::after { animation: none !important; transform: none !important; width: 30%; }
+  .reduced-sim .thinking span { animation: none !important; opacity: 0.6 !important; }
+  .reduced-sim *, .reduced-sim *::before, .reduced-sim *::after {
+    animation-duration: 0ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+</style>
+</head>
+<body>
+
+<!-- sprite -->
+<div id="sprite-container" aria-hidden="true"></div>
+<script>
+  fetch('icons/sprite.svg').then(r => r.text()).then(t => {
+    document.getElementById('sprite-container').innerHTML = t;
+  });
+</script>
+
+<header class="page-head">
+  <div class="lockup">
+    <svg class="icon icon--32 mark" aria-hidden="true"><use href="#myika-logo-32"/></svg>
+    <div class="word">Myika <span class="for">/ animations</span></div>
+  </div>
+  <div class="crumbs">
+    <span>v0.1</span><span>1 signature · 7 service</span><span>tunable</span>
+  </div>
+</header>
+
+<div class="grid-anims">
+
+  <!-- ── 01 · Heartbeat (signature) ── -->
+  <div class="anim-card" data-anim="heartbeat">
+    <div class="anim-head">
+      <span class="num">01</span>
+      <h3>Bridge heartbeat</h3>
+      <span class="sig">signature</span>
+      <div class="toolbar">
+        <button data-action="frames">keyframes</button>
+      </div>
+    </div>
+    <div class="anim-stage tall">
+      <div class="live hb-row">
+        <div class="hb-cell">
+          <span class="heartbeat" aria-hidden="true"><span class="heartbeat__core"></span><span class="heartbeat__ring"></span></span>
+          <div class="label live">connected · idle</div>
+        </div>
+        <div class="hb-cell">
+          <span class="heartbeat heartbeat--active" aria-hidden="true"><span class="heartbeat__core"></span><span class="heartbeat__ring"></span></span>
+          <div class="label busy">connected · active</div>
+        </div>
+        <div class="hb-cell">
+          <span class="heartbeat heartbeat--disconnected" aria-hidden="true"><span class="heartbeat__core"></span><span class="heartbeat__ring"></span></span>
+          <div class="label dead">disconnected</div>
+        </div>
+      </div>
+      <div class="frames">
+        <div class="frames-row">
+          <div class="frame"><div class="frame-vis"><span class="heartbeat" style="animation: none"><span class="heartbeat__core"></span><span class="heartbeat__ring" style="animation:none; transform: scale(0.85); opacity: 0;"></span></span></div><div class="frame-meta">scale 0.85<br/>opacity 0</div><div class="pct">0%</div></div>
+          <div class="frame"><div class="frame-vis"><span class="heartbeat" style="animation: none"><span class="heartbeat__core"></span><span class="heartbeat__ring" style="animation:none; transform: scale(1.0); opacity: 0.5;"></span></span></div><div class="frame-meta">scale 1.0<br/>opacity 0.5</div><div class="pct">20%</div></div>
+          <div class="frame"><div class="frame-vis"><span class="heartbeat" style="animation: none"><span class="heartbeat__core"></span><span class="heartbeat__ring" style="animation:none; transform: scale(1.3); opacity: 0.25;"></span></span></div><div class="frame-meta">scale 1.3<br/>opacity 0.25</div><div class="pct">60%</div></div>
+          <div class="frame"><div class="frame-vis"><span class="heartbeat" style="animation: none"><span class="heartbeat__core"></span><span class="heartbeat__ring" style="animation:none; transform: scale(1.6); opacity: 0;"></span></span></div><div class="frame-meta">scale 1.6<br/>opacity 0</div><div class="pct">100%</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>idle</b> 2000ms</span>
+      <span><b>active</b> 800ms</span>
+      <span><b>retune</b> 400ms</span>
+      <span><b>ease</b> ease-out</span>
+      <span class="reduced">RM · static dot</span>
+    </div>
+  </div>
+
+  <!-- ── 02 · Streaming text ── -->
+  <div class="anim-card" data-anim="stream">
+    <div class="anim-head">
+      <span class="num">02</span>
+      <h3>Streaming text · cursor + word fade</h3>
+      <div class="toolbar">
+        <button data-action="frames">keyframes</button>
+        <button data-action="restart">restart</button>
+      </div>
+    </div>
+    <div class="anim-stage tall">
+      <div class="live stream-demo">
+        <div class="preface">assistant · streaming</div>
+        <div id="stream-out">Reading <code>PlayerCharacter.cpp</code> to find the jump curve. The current</div>
+      </div>
+      <div class="frames">
+        <div class="frames-row">
+          <div class="frame"><div class="frame-vis" style="font-family: var(--font-mono); font-size: 11px; color: var(--color-text-primary)">…<span style="opacity:1">implementation</span></div><div class="frame-meta">all settled</div><div class="pct">t = 0</div></div>
+          <div class="frame"><div class="frame-vis" style="font-family: var(--font-mono); font-size: 11px;color: var(--color-text-primary)">…<span style="opacity:1">implementation</span> <span style="opacity:0">uses</span></div><div class="frame-meta">new word inserted<br/>opacity 0</div><div class="pct">t = 0ms</div></div>
+          <div class="frame"><div class="frame-vis" style="font-family: var(--font-mono); font-size: 11px;color: var(--color-text-primary)">…<span style="opacity:1">implementation</span> <span style="opacity:0.6">uses</span></div><div class="frame-meta">fade-in done<br/>newest = 60%</div><div class="pct">t = 80ms</div></div>
+          <div class="frame"><div class="frame-vis" style="font-family: var(--font-mono); font-size: 11px;color: var(--color-text-primary)">…<span style="opacity:0.8">uses</span> <span style="opacity:0.6">a</span></div><div class="frame-meta">trail shifts:<br/>60→80→100</div><div class="pct">next word</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>fade</b> 80ms ease-out</span>
+      <span><b>cursor</b> 1000ms steps(2)</span>
+      <span><b>trail</b> 60% / 80% / 100%</span>
+      <span class="reduced">RM · instant insert</span>
+    </div>
+  </div>
+
+  <!-- ── 03 · Tool chip lifecycle ── -->
+  <div class="anim-card" data-anim="chip">
+    <div class="anim-head">
+      <span class="num">03</span>
+      <h3>Tool chip · queued → running → done</h3>
+      <div class="toolbar">
+        <button data-action="frames">keyframes</button>
+        <button data-action="cycle">cycle</button>
+      </div>
+    </div>
+    <div class="anim-stage tall">
+      <div class="live chip-row" id="chip-stage">
+        <div class="chip-line">
+          <span class="label">queued</span>
+          <span class="tool-chip tool-chip--queued"><span class="tool-chip__dot"></span><svg style="width:12px;height:12px"><use href="#myika-16-write"/></svg>edit_file</span>
+        </div>
+        <div class="chip-line">
+          <span class="label">running</span>
+          <span class="tool-chip tool-chip--running"><span class="tool-chip__dot"></span><svg style="width:12px;height:12px"><use href="#myika-16-write"/></svg>edit_file</span>
+        </div>
+        <div class="chip-line">
+          <span class="label">done</span>
+          <span class="tool-chip tool-chip--complete"><span class="tool-chip__dot"></span><svg style="width:12px;height:12px"><use href="#myika-16-write"/></svg>edit_file</span>
+        </div>
+        <div class="chip-line">
+          <span class="label">error</span>
+          <span class="tool-chip tool-chip--error"><span class="tool-chip__dot"></span><svg style="width:12px;height:12px"><use href="#myika-16-write"/></svg>edit_file</span>
+        </div>
+      </div>
+      <div class="frames">
+        <div class="frames-row">
+          <div class="frame"><div class="frame-vis"><span class="tool-chip tool-chip--queued"><span class="tool-chip__dot"></span>edit_file</span></div><div class="frame-meta">opacity 55%<br/>dashed border</div><div class="pct">queued</div></div>
+          <div class="frame"><div class="frame-vis"><span class="tool-chip tool-chip--running" style="--m-chip-progress: 999s"><span class="tool-chip__dot"></span>edit_file</span></div><div class="frame-meta">progress bar<br/>indeterminate</div><div class="pct">running</div></div>
+          <div class="frame"><div class="frame-vis"><span class="tool-chip tool-chip--complete"><span class="tool-chip__dot"></span>edit_file</span></div><div class="frame-meta">2px accent edge<br/>no motion</div><div class="pct">done</div></div>
+          <div class="frame"><div class="frame-vis"><span class="tool-chip tool-chip--error"><span class="tool-chip__dot"></span>edit_file</span></div><div class="frame-meta">2px danger edge<br/>no motion</div><div class="pct">error</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>transition</b> 200ms ease-out</span>
+      <span><b>progress</b> 1400ms ease-in-out</span>
+      <span><b>dot pulse</b> 1800ms</span>
+      <span class="reduced">RM · static 30% bar</span>
+    </div>
+  </div>
+
+  <!-- ── 04 · Thinking dots ── -->
+  <div class="anim-card" data-anim="think">
+    <div class="anim-head">
+      <span class="num">04</span>
+      <h3>Thinking dots</h3>
+      <div class="toolbar">
+        <button data-action="frames">keyframes</button>
+      </div>
+    </div>
+    <div class="anim-stage">
+      <div class="live" style="display:flex; gap: 14px; align-items: center; font-family: var(--font-ui); font-size: 13px; color: var(--color-text-secondary);">
+        <svg style="width:16px;height:16px; color: var(--color-text-muted)"><use href="#myika-16-chat"/></svg>
+        <span>Myika</span>
+        <span class="thinking" aria-label="thinking"><span></span><span></span><span></span></span>
+      </div>
+      <div class="frames">
+        <div class="frames-row">
+          <div class="frame"><div class="frame-vis"><span class="thinking" style="animation:none"><span style="opacity:0.3"></span><span style="opacity:0.3"></span><span style="opacity:0.3"></span></span></div><div class="frame-meta">all 30%</div><div class="pct">0ms</div></div>
+          <div class="frame"><div class="frame-vis"><span class="thinking" style="animation:none"><span style="opacity:1"></span><span style="opacity:0.5"></span><span style="opacity:0.3"></span></span></div><div class="frame-meta">100/50/30</div><div class="pct">300ms</div></div>
+          <div class="frame"><div class="frame-vis"><span class="thinking" style="animation:none"><span style="opacity:0.5"></span><span style="opacity:1"></span><span style="opacity:0.5"></span></span></div><div class="frame-meta">50/100/50</div><div class="pct">450ms</div></div>
+          <div class="frame"><div class="frame-vis"><span class="thinking" style="animation:none"><span style="opacity:0.3"></span><span style="opacity:0.5"></span><span style="opacity:1"></span></span></div><div class="frame-meta">30/50/100</div><div class="pct">600ms</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>cycle</b> 1200ms linear</span>
+      <span><b>stagger</b> 150ms</span>
+      <span><b>opacity</b> 0.3 → 1.0</span>
+      <span class="reduced">RM · static 60%</span>
+    </div>
+  </div>
+
+  <!-- ── 05 · Plan card stagger ── -->
+  <div class="anim-card" data-anim="plan">
+    <div class="anim-head">
+      <span class="num">05</span>
+      <h3>Plan card · enter + step stagger</h3>
+      <div class="toolbar">
+        <button data-action="restart">restart</button>
+      </div>
+    </div>
+    <div class="anim-stage tall">
+      <div class="live" id="plan-host">
+        <div class="plan-demo plan-enter">
+          <div class="h"><svg style="width:14px;height:14px;color:var(--color-accent-default)"><use href="#myika-16-plan"/></svg> Plan · 4 steps <span class="pill-accent">awaiting</span></div>
+          <ol>
+            <li class="plan-step" style="--i:0"><span class="num">1</span>Read PlayerCharacter.cpp</li>
+            <li class="plan-step" style="--i:1"><span class="num">2</span>Locate jump-curve method</li>
+            <li class="plan-step" style="--i:2"><span class="num">3</span>Adjust acceleration term</li>
+            <li class="plan-step" style="--i:3"><span class="num">4</span>Run automation test</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>card</b> 240ms ease-out · y 8→0</span>
+      <span><b>steps</b> 180ms · stagger 60ms · y -4→0</span>
+      <span class="reduced">RM · fade only, no translate</span>
+    </div>
+  </div>
+
+  <!-- ── 06 · Modal entry ── -->
+  <div class="anim-card" data-anim="modal">
+    <div class="anim-head">
+      <span class="num">06</span>
+      <h3>Modal entry</h3>
+      <div class="toolbar">
+        <button data-action="restart">restart</button>
+      </div>
+    </div>
+    <div class="anim-stage tall">
+      <div class="live modal-demo-host" id="modal-host">
+        <div class="modal-bd modal-backdrop">
+          <div class="modal-bx modal-surface">
+            <div class="t">Run <code style="font-family:var(--font-mono);font-size:11px;background:var(--color-bg-void);padding:1px 4px;border-radius:3px">edit_file</code> on PlayerCharacter.cpp?</div>
+            <div class="b">Myika will replace 4 lines in <code style="font-family:var(--font-mono);font-size:11px">JumpCurve()</code>. You can review before run.</div>
+            <div class="row">
+              <button class="btn-secondary-demo" style="height:28px">Deny</button>
+              <button class="btn-primary-demo" style="height:28px">Approve &amp; run</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>backdrop</b> 200ms · blur 0→2</span>
+      <span><b>surface</b> 220ms · y 4→0 · delay 30ms</span>
+      <span class="reduced">RM · fade only</span>
+    </div>
+  </div>
+
+  <!-- ── 07 · Composer ── -->
+  <div class="anim-card" data-anim="composer">
+    <div class="anim-head">
+      <span class="num">07</span>
+      <h3>Composer · focus + send</h3>
+      <div class="toolbar">
+        <button data-action="send">simulate send</button>
+      </div>
+    </div>
+    <div class="anim-stage">
+      <div class="live composer-demo">
+        <div class="composer composer-shell" id="composer">
+          <textarea rows="1" placeholder="Ask Myika to do something in your project…"></textarea>
+          <button class="send-btn" id="send-btn" aria-label="Send">
+            <svg style="width:16px;height:16px"><use href="#myika-16-exec-fill"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>focus</b> border 30% accent · 150ms</span>
+      <span><b>send icon</b> 50→100% on focus · 150ms</span>
+      <span><b>fire</b> scale 0.95 + accent flash · 200ms</span>
+      <span class="reduced">RM · color swap only</span>
+    </div>
+  </div>
+
+  <!-- ── 08 · Pill transitions ── -->
+  <div class="anim-card" data-anim="pill">
+    <div class="anim-head">
+      <span class="num">08</span>
+      <h3>Status pill transitions</h3>
+      <div class="toolbar">
+        <button data-action="cycle">cycle</button>
+      </div>
+    </div>
+    <div class="anim-stage">
+      <div class="live pillbox" id="pillbox">
+        <span class="pp pill-anim queued"  id="pp1">queued</span>
+        <span class="pp pill-anim running" id="pp2">running</span>
+        <span class="pp pill-anim done"    id="pp3">done</span>
+        <span class="pp pill-anim fail"    id="pp4">failed</span>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>color swap</b> 100ms ease-out</span>
+      <span><b>no motion</b> · only color/border/bg</span>
+      <span class="reduced">RM · instant</span>
+    </div>
+  </div>
+
+  <!-- ── 09 · User msg enter (full width) ── -->
+  <div class="anim-card full" data-anim="user">
+    <div class="anim-head">
+      <span class="num">09</span>
+      <h3>User message enter</h3>
+      <div class="toolbar">
+        <button data-action="restart">restart</button>
+      </div>
+    </div>
+    <div class="anim-stage" style="justify-content: flex-end;">
+      <div class="live" id="user-host" style="width:100%; display:flex; flex-direction: column; align-items: flex-end;">
+        <div class="msg-user msg-user-enter">Tighten the player jump so it peaks faster and falls heavier.</div>
+      </div>
+    </div>
+    <div class="anim-meta">
+      <span><b>duration</b> 180ms ease-out</span>
+      <span><b>transform</b> y 4→0</span>
+      <span><b>opacity</b> 0→1</span>
+      <span class="reduced">RM · fade only</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ───────────── Tweaks panel ───────────── -->
+<aside class="tweaks-panel" id="tweaks">
+  <div class="head">
+    <svg style="width:14px;height:14px;color:var(--color-accent-default)"><use href="#myika-16-settings"/></svg>
+    <div class="title">Tweaks</div>
+    <div class="meta">live · ms</div>
+  </div>
+
+  <div class="tweak-row">
+    <div class="top"><span>Heartbeat · idle</span><span class="val tnum" id="v-hbi">2000ms</span></div>
+    <input type="range" min="600" max="4000" step="50" value="2000" id="r-hbi" />
+  </div>
+  <div class="tweak-row">
+    <div class="top"><span>Heartbeat · active</span><span class="val tnum" id="v-hba">800ms</span></div>
+    <input type="range" min="200" max="2000" step="50" value="800" id="r-hba" />
+  </div>
+  <div class="tweak-row">
+    <div class="top"><span>Stream · word fade</span><span class="val tnum" id="v-sf">80ms</span></div>
+    <input type="range" min="0" max="400" step="10" value="80" id="r-sf" />
+  </div>
+  <div class="tweak-row">
+    <div class="top"><span>Tool chip · progress</span><span class="val tnum" id="v-cp">1400ms</span></div>
+    <input type="range" min="400" max="3000" step="50" value="1400" id="r-cp" />
+  </div>
+  <div class="tweak-row">
+    <div class="top"><span>Modal · enter</span><span class="val tnum" id="v-mod">220ms</span></div>
+    <input type="range" min="0" max="600" step="20" value="220" id="r-mod" />
+  </div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="tlabel">Reduced motion</div>
+      <div class="thint">simulates prefers-reduced-motion</div>
+    </div>
+    <div class="grow"></div>
+    <div class="switch" id="rm-toggle" role="switch" aria-checked="false" tabindex="0"></div>
+  </div>
+
+  <button class="reset-btn" id="reset">reset to defaults</button>
+</aside>
+
+<footer>
+  <span>myika · animations v0.1</span>
+  <span><a href="Icons.html">← Icons</a></span>
+</footer>
+
+<script>
+  // ── Keyframes toggle on each card ──
+  document.querySelectorAll('[data-action="frames"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.anim-card');
+      const on = card.classList.toggle('show-frames');
+      btn.classList.toggle('is-on', on);
+    });
+  });
+
+  // ── Restart helper ──
+  function restartAnims(host) {
+    host.querySelectorAll('*').forEach(el => {
+      const cs = getComputedStyle(el);
+      if (cs.animationName !== 'none') {
+        el.style.animation = 'none';
+        // reflow
+        void el.offsetWidth;
+        el.style.animation = '';
+      }
+    });
+  }
+  document.querySelectorAll('[data-action="restart"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.anim-card');
+      const live = card.querySelector('.live');
+      // Clone-and-replace forces re-mount of all CSS animations
+      const clone = live.cloneNode(true);
+      live.replaceWith(clone);
+      // Re-bind chip cycler if applicable
+      bindChipCycler(card);
+    });
+  });
+
+  // ── Chip lifecycle cycler (single chip cycles through states) ──
+  function bindChipCycler(card) {
+    const btn = card.querySelector('[data-action="cycle"]');
+    if (!btn || card.dataset.bound) return;
+    card.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      // Cycle the "running" chip in the stage through states
+      const stage = card.querySelector('.live');
+      const target = stage.querySelectorAll('.tool-chip')[1];
+      if (!target) return;
+      const seq = ['tool-chip--queued', 'tool-chip--running', 'tool-chip--complete', 'tool-chip--error'];
+      const cur = seq.find(c => target.classList.contains(c));
+      const next = seq[(seq.indexOf(cur) + 1) % seq.length];
+      seq.forEach(c => target.classList.remove(c));
+      target.classList.add(next);
+    });
+  }
+  document.querySelectorAll('[data-anim="chip"]').forEach(bindChipCycler);
+
+  // ── Pill cycler ──
+  (function pillCycler(){
+    const card = document.querySelector('[data-anim="pill"]');
+    const btn = card.querySelector('[data-action="cycle"]');
+    btn.addEventListener('click', () => {
+      const states = ['queued','running','done','fail'];
+      ['pp1','pp2','pp3','pp4'].forEach(id => {
+        const el = document.getElementById(id);
+        const cur = states.find(s => el.classList.contains(s));
+        const nx  = states[(states.indexOf(cur) + 1) % states.length];
+        states.forEach(s => el.classList.remove(s));
+        el.classList.add(nx);
+        el.textContent = nx;
+      });
+    });
+  })();
+
+  // ── Streaming text simulator ──
+  (function streamer(){
+    const out = document.getElementById('stream-out');
+    const card = document.querySelector('[data-anim="stream"]');
+    const tail = ['implementation', 'gives', 'a', 'soft', 'arc', '—', 'we', 'can', 'tighten', 'it', 'by', 'increasing', 'the', 'gravity', 'multiplier.'];
+    let i = 0;
+    function tick() {
+      if (card.classList.contains('show-frames')) { setTimeout(tick, 600); return; }
+      const word = tail[i % tail.length];
+      i++;
+      // Demote existing trail
+      const newest = out.querySelector('.word--new');
+      if (newest) {
+        newest.classList.remove('word--new');
+        newest.classList.add('word--n1');
+      }
+      const n1 = out.querySelector('.word--n1:not(.word--new)');
+      // promote any older n1 to n2 (already done above by walking from oldest)
+      out.querySelectorAll('.word--n1').forEach(el => {
+        if (el !== newest) {
+          el.classList.remove('word--n1');
+          el.classList.add('word--n2');
+        }
+      });
+      out.querySelectorAll('.word--n2').forEach(el => {
+        // older n2s stay settled — we just leave them
+      });
+      // Append space + new word
+      out.appendChild(document.createTextNode(' '));
+      const w = document.createElement('span');
+      w.className = 'word word--new word--enter';
+      w.textContent = word;
+      out.appendChild(w);
+      // Cursor at end
+      let cur = out.querySelector('.cursor');
+      if (!cur) {
+        cur = document.createElement('span');
+        cur.className = 'cursor';
+        out.appendChild(cur);
+      } else {
+        out.appendChild(cur);
+      }
+      setTimeout(tick, 220 + Math.random() * 280);
+    }
+    // ensure cursor seed
+    const cur = document.createElement('span'); cur.className = 'cursor'; out.appendChild(cur);
+    setTimeout(tick, 600);
+  })();
+
+  // ── Plan re-trigger ──
+  (function planHook(){
+    const card = document.querySelector('[data-anim="plan"]');
+    const btn = card.querySelector('[data-action="restart"]');
+    btn.addEventListener('click', () => {
+      const host = document.getElementById('plan-host');
+      const html = host.innerHTML;
+      host.innerHTML = '';
+      // reflow then reinsert
+      void host.offsetWidth;
+      host.innerHTML = html;
+    });
+  })();
+
+  // ── Modal re-trigger ──
+  (function modalHook(){
+    const card = document.querySelector('[data-anim="modal"]');
+    const btn = card.querySelector('[data-action="restart"]');
+    btn.addEventListener('click', () => {
+      const host = document.getElementById('modal-host');
+      const html = host.innerHTML;
+      host.innerHTML = '';
+      void host.offsetWidth;
+      host.innerHTML = html;
+    });
+  })();
+
+  // ── User msg re-trigger ──
+  (function userHook(){
+    const card = document.querySelector('[data-anim="user"]');
+    const btn = card.querySelector('[data-action="restart"]');
+    btn.addEventListener('click', () => {
+      const host = document.getElementById('user-host');
+      const html = host.innerHTML;
+      host.innerHTML = '';
+      void host.offsetWidth;
+      host.innerHTML = html;
+    });
+  })();
+
+  // ── Composer demo ──
+  (function composerHook(){
+    const card = document.querySelector('[data-anim="composer"]');
+    const btn = card.querySelector('[data-action="send"]');
+    const send = document.getElementById('send-btn');
+    btn.addEventListener('click', () => {
+      send.classList.remove('send-btn--firing');
+      void send.offsetWidth;
+      send.classList.add('send-btn--firing');
+    });
+  })();
+
+  // ── Tweaks panel ──
+  const root = document.documentElement;
+  const ranges = [
+    { id: 'r-hbi', vId: 'v-hbi', cssVar: '--m-heartbeat-idle', def: 2000, suf: 'ms' },
+    { id: 'r-hba', vId: 'v-hba', cssVar: '--m-heartbeat-active', def: 800, suf: 'ms' },
+    { id: 'r-sf',  vId: 'v-sf',  cssVar: '--m-stream-fade', def: 80,  suf: 'ms' },
+    { id: 'r-cp',  vId: 'v-cp',  cssVar: '--m-chip-progress', def: 1400, suf: 'ms' },
+    { id: 'r-mod', vId: 'v-mod', cssVar: '--m-modal-enter', def: 220, suf: 'ms' },
+  ];
+  ranges.forEach(r => {
+    const range = document.getElementById(r.id);
+    const val = document.getElementById(r.vId);
+    range.addEventListener('input', () => {
+      root.style.setProperty(r.cssVar, range.value + 'ms');
+      val.textContent = range.value + r.suf;
+    });
+  });
+  document.getElementById('reset').addEventListener('click', () => {
+    ranges.forEach(r => {
+      document.getElementById(r.id).value = r.def;
+      document.getElementById(r.vId).textContent = r.def + r.suf;
+      root.style.setProperty(r.cssVar, r.def + 'ms');
+    });
+  });
+  // RM toggle
+  const rm = document.getElementById('rm-toggle');
+  rm.addEventListener('click', () => {
+    const on = rm.classList.toggle('on');
+    rm.setAttribute('aria-checked', on ? 'true' : 'false');
+    document.body.classList.toggle('reduced-sim', on);
+  });
+  rm.addEventListener('keydown', e => {
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); rm.click(); }
+  });
+</script>
+
+</body>
+</html>

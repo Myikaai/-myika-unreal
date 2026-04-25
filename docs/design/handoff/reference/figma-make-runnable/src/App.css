@@ -1,0 +1,87 @@
+/*
+ * App Styles
+ *
+ * Simple wrapper for the reference implementation with a state switcher.
+ */
+
+.app {
+  min-height: 100vh;
+  background: hsl(240, 10%, 8%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-8);
+  gap: var(--space-6);
+}
+
+/* State Switcher */
+.switcher {
+  width: 100%;
+  max-width: 1280px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-2);
+}
+
+.switcher__label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-3);
+}
+
+.switcher__buttons {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.switcher__button {
+  flex: 1;
+  height: 32px;
+  padding: 0 var(--space-4);
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.switcher__button:hover {
+  border-color: var(--color-border-strong);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.switcher__button--active {
+  background: var(--color-accent-default);
+  color: var(--color-text-on-accent);
+  border-color: var(--color-accent-default);
+}
+
+.switcher__button--active:hover {
+  background: var(--color-accent-glow);
+  border-color: var(--color-accent-glow);
+}
+
+.switcher__note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+/* Content wrapper */
+.content {
+  position: relative;
+  width: fit-content;
+}
