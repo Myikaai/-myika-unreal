@@ -149,6 +149,7 @@ fn run_claude(
         .arg("--system-prompt").arg(SYSTEM_PROMPT)
         .arg("--mcp-config").arg(mcp_config_path)
         .arg("--strict-mcp-config")
+        .arg("--tools").arg("")  // disable all built-in tools — only MCP UE tools
         .arg("--no-session-persistence")
         .arg("--max-turns").arg(MAX_TURNS.to_string())
         .arg("--permission-mode").arg("auto")

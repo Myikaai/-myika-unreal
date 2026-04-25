@@ -3,7 +3,7 @@
 **For:** Claude Code agent building this project
 **Owner:** Jacob (Myikaai)
 **Target:** 2-week proof-of-concept demo
-**Updated:** 2026-04-24
+**Updated:** 2026-04-25
 
 ---
 
@@ -75,18 +75,17 @@ Myika Unreal is an AI assistant native to Unreal Engine. It pairs an external de
 │                         │ ◄─────► │                           │
 │  - Chat UI              │ :17645  │  - C++ WebSocket server   │
 │  - Settings             │         │  - Python tool handlers   │
-│  - Claude API client    │         │  - Editor lifecycle hooks │
+│  - Claude CLI subprocess│         │  - Editor lifecycle hooks │
+│  - MCP bridge server    │         │                           │
 │  - SQLite (history)     │         │                           │
-└────────────┬────────────┘         └──────────────────────────┘
-             │
-             │ HTTPS
-             ▼
-      ┌──────────────┐
-      │ Anthropic API│
-      └──────────────┘
+└─────────────────────────┘         └──────────────────────────┘
+
+Claude CLI subprocess ←stdio→ MCP bridge server ←TCP :17646→ Tool proxy ←WS :17645→ UE plugin
 ```
 
-The desktop app owns the LLM loop. It calls Claude with tools defined. When Claude requests a tool call, the app forwards it via WebSocket to the in-engine plugin, which executes it (mostly via UE's Python API) and returns the result. The app feeds the result back to Claude. Loop continues until Claude returns a final message.
+The desktop app spawns **Claude Code CLI** (`claude --print --output-format stream-json`) as a subprocess. Tool routing goes through MCP: the CLI talks to our MCP bridge server via stdio, which forwards tool calls over TCP to a tool proxy in the Tauri app, which relays them over WebSocket to the UE plugin. The CLI manages the full LLM loop (tool use, multi-turn, context) — the desktop app just streams events to the UI.
+
+Built-in Claude Code tools (Bash, Edit, etc.) are disabled via `--tools ""`. Only our 6 UE-specific MCP tools are available.
 
 ### Why Tauri 2 over Electron
 - Smaller binary, faster startup, native feel
@@ -117,15 +116,20 @@ myika-unreal/
 │   ├── BRIDGE_PROTOCOL.md             # WebSocket message spec (see §6)
 │   └── TOOL_REFERENCE.md              # Tool list + schemas (see §7)
 ├── desktop/                           # Tauri app
+│   ├── mcp-bridge-server.mjs          # MCP stdio server — exposes 6 UE tools to Claude CLI
+│   ├── mcp-config.json                # MCP server config consumed by Claude CLI
 │   ├── src-tauri/
 │   │   ├── Cargo.toml
 │   │   ├── tauri.conf.json
+│   │   ├── capabilities/
+│   │   │   └── default.json           # Tauri 2 permissions (core:default, core:event:default)
 │   │   └── src/
 │   │       ├── main.rs
 │   │       ├── bridge.rs              # WebSocket client to UE
-│   │       ├── claude.rs              # Anthropic API client
+│   │       ├── claude.rs              # Claude CLI subprocess manager (stream-json parser)
 │   │       ├── db.rs                  # SQLite (rusqlite)
-│   │       └── tools.rs               # Tool schema definitions shared with Claude
+│   │       ├── tool_proxy.rs          # TCP server (:17646) bridging MCP ↔ WS bridge
+│   │       └── tools.rs               # Tool schema definitions
 │   ├── src/                           # React
 │   │   ├── App.tsx
 │   │   ├── main.tsx
@@ -175,13 +179,26 @@ myika-unreal/
 
 ## 5. Tech stack — exact versions and libraries
 
+### AI backend strategy: Claude Code CLI as subprocess
+
+Instead of a direct Anthropic API client (`reqwest` → Messages API), Myika spawns the **Claude Code CLI** as a subprocess. This is a deliberate architectural choice:
+
+- **Subscription routing:** Users with a Claude Pro/Max subscription can use Myika at no additional API cost. No BYOK friction, no billing surprises. This dramatically lowers the barrier to trying the demo.
+- **Lower user cost:** Claude Code CLI usage is included in existing Claude subscriptions. A direct API integration would require users to set up and fund a separate Anthropic API account.
+- **Faster iteration:** The CLI handles auth, rate limiting, context management, and the full tool-use loop. We skip building and debugging a bespoke API client in Rust.
+- **MCP for tool routing:** Claude Code natively supports MCP servers. Our 6 UE tools are exposed via an MCP stdio bridge server, which the CLI discovers through `mcp-config.json`. Built-in Claude Code tools (Bash, Edit, etc.) are disabled via `--tools ""` so the AI is scoped to only UE operations.
+
+Trade-off: we depend on the user having Claude Code CLI installed and authenticated. For the demo, this is acceptable. For V1, we can add a direct API fallback for users who prefer BYOK.
+
 **Desktop app (Tauri):**
 - Tauri 2.x (latest stable)
 - Rust stable (whatever rustup gives)
 - `tokio-tungstenite` for WebSocket client
 - `rusqlite` (bundled feature) for SQLite
-- `reqwest` for HTTPS to Anthropic
 - `serde` + `serde_json` for everything JSON
+- Claude Code CLI spawned as subprocess (`std::process::Command`, blocking I/O on dedicated OS thread)
+- MCP bridge server (`mcp-bridge-server.mjs`, Node.js, stdio transport)
+- TCP tool proxy on `:17646` (bridges MCP server ↔ WebSocket bridge)
 - React 18, Vite, TypeScript 5
 - TailwindCSS 3 for styling
 - `@tauri-apps/api` for IPC
@@ -190,13 +207,17 @@ myika-unreal/
 **UE plugin:**
 - Unreal Engine 5.7
 - C++ module: standard UE 5.7 build, no exotic deps
-- For WebSocket server in C++: try **`WebSocketServer` from `Networking`/`WebSockets` modules** (UE has built-in WebSocket support); if that doesn't expose a server, fall back to a vendored single-header library like `cpp-httplib` or `uWebSockets`. Decide once you actually start writing the plugin and report back.
+- WebSocket server using UE's built-in `WebSockets` module (`IWebSocketServer`)
+- Auth: shared-secret token file at `%LOCALAPPDATA%\Myika\bridge-token`
 - Python: UE 5.7's bundled Python (3.11.x as of UE 5.x). No pip-installed external packages — keep the plugin self-contained for now.
 
-**Anthropic SDK:**
-- Don't use the Anthropic SDK in Rust (immature). Roll our own thin client around `reqwest`. The Messages API is simple enough.
-- Model: `claude-sonnet-4-5` for default, `claude-opus-4-5` available as a setting.
-  - **Verify these model strings before coding** — model names change. Use the Anthropic docs to confirm current IDs.
+**Claude CLI flags:**
+```
+claude --print --verbose --output-format stream-json --model sonnet \
+  --system-prompt "..." --mcp-config mcp-config.json --strict-mcp-config \
+  --tools "" --no-session-persistence --max-turns 25 --permission-mode auto \
+  -- "<prompt>"
+```
 
 ---
 
