@@ -1,6 +1,8 @@
 """Routes incoming tool calls from the WebSocket bridge to handlers."""
 
 import json
+import io
+import sys
 import importlib
 from typing import Any
 
@@ -22,6 +24,67 @@ def dispatch(tool_name: str, args: dict) -> dict:
         return {"ok": True, "result": result}
     except Exception as e:
         return {"ok": False, "error": {"code": "EXEC_ERROR", "message": str(e)}}
+
+
+def dispatch_json(payload_str: str) -> str:
+    """Entry point called from C++. Accepts JSON string, returns JSON string.
+
+    This function is bulletproof — it will NEVER raise an exception.
+    """
+    try:
+        try:
+            payload = json.loads(payload_str)
+        except (json.JSONDecodeError, TypeError) as e:
+            return json.dumps({"ok": False, "error": {"code": "INVALID_JSON", "message": str(e)}})
+
+        tool_name = payload.get("tool", "")
+        args = payload.get("args", {})
+
+        # Capture stdout/stderr during tool execution
+        old_stdout, old_stderr = sys.stdout, sys.stderr
+        captured_out, captured_err = io.StringIO(), io.StringIO()
+        try:
+            sys.stdout = captured_out
+            sys.stderr = captured_err
+            result = dispatch(tool_name, args)
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        # Attach captured output if any
+        stdout_val = captured_out.getvalue()
+        stderr_val = captured_err.getvalue()
+        if stdout_val or stderr_val:
+            result["_captured"] = {"stdout": stdout_val, "stderr": stderr_val}
+
+        try:
+            return json.dumps(result)
+        except (TypeError, ValueError) as e:
+            return json.dumps({"ok": False, "error": {"code": "SERIALIZATION_ERROR", "message": str(e)}})
+
+    except Exception as e:
+        # Last-resort catch — should never happen but guarantees no exception escapes
+        try:
+            return json.dumps({"ok": False, "error": {"code": "INTERNAL_ERROR", "message": str(e)}})
+        except Exception:
+            return '{"ok": false, "error": {"code": "INTERNAL_ERROR", "message": "catastrophic failure"}}'
+
+
+def reload_tools():
+    """Hot-reload all registered tool modules and refresh their handlers."""
+    reloaded = []
+    for tool_name, _handler in list(TOOL_REGISTRY.items()):
+        for mod_key, mod in list(sys.modules.items()):
+            if mod_key.startswith("myika.tools.") and hasattr(mod, "TOOL_NAME") and mod.TOOL_NAME == tool_name:
+                try:
+                    mod = importlib.reload(mod)
+                    if hasattr(mod, "handle"):
+                        TOOL_REGISTRY[tool_name] = mod.handle
+                        reloaded.append(tool_name)
+                except Exception as e:
+                    print(f"[Myika] Failed to reload {tool_name}: {e}")
+                break
+    print(f"[Myika] Reloaded {len(reloaded)} tool(s): {', '.join(reloaded)}")
 
 
 def _load_tools():
