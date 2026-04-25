@@ -164,28 +164,49 @@ void FMyikaBridgeServer::HandleIncomingMessage(const FString& Message)
 
 	if (Type == TEXT("request"))
 	{
-		// For now, echo back an error response indicating no handler
 		const TSharedPtr<FJsonObject>* PayloadObj = nullptr;
 		FString ToolName;
+		FString ArgsJson = TEXT("{}");
+
 		if (JsonObj->TryGetObjectField(TEXT("payload"), PayloadObj))
 		{
 			ToolName = (*PayloadObj)->GetStringField(TEXT("tool"));
+
+			const TSharedPtr<FJsonObject>* ArgsObj = nullptr;
+			if ((*PayloadObj)->TryGetObjectField(TEXT("args"), ArgsObj))
+			{
+				TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> ArgsWriter =
+					TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&ArgsJson);
+				FJsonSerializer::Serialize((*ArgsObj).ToSharedRef(), ArgsWriter);
+			}
 		}
 
-		UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Request for tool '%s' (id=%s) - no handler yet."), *ToolName, *Id);
+		UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Dispatching tool '%s' (id=%s)"), *ToolName, *Id);
 
-		// Send error response
-		TSharedPtr<FJsonObject> ResponsePayload = MakeShared<FJsonObject>();
-		ResponsePayload->SetBoolField(TEXT("success"), false);
-		ResponsePayload->SetStringField(TEXT("error"), FString::Printf(TEXT("No handler for tool '%s'"), *ToolName));
+		FString ResultJson = DispatchToolRequest(ToolName, ArgsJson);
+
+		UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Tool '%s' result: %s"), *ToolName, *ResultJson);
+
+		TSharedPtr<FJsonObject> ResultObj;
+		TSharedRef<TJsonReader<>> ResultReader = TJsonReaderFactory<>::Create(ResultJson);
+		if (!FJsonSerializer::Deserialize(ResultReader, ResultObj) || !ResultObj.IsValid())
+		{
+			ResultObj = MakeShared<FJsonObject>();
+			ResultObj->SetBoolField(TEXT("ok"), false);
+			TSharedPtr<FJsonObject> ErrObj = MakeShared<FJsonObject>();
+			ErrObj->SetStringField(TEXT("code"), TEXT("INTERNAL_ERROR"));
+			ErrObj->SetStringField(TEXT("message"), TEXT("Failed to parse Python dispatch result"));
+			ResultObj->SetObjectField(TEXT("error"), ErrObj);
+		}
 
 		TSharedPtr<FJsonObject> Response = MakeShared<FJsonObject>();
 		Response->SetStringField(TEXT("id"), Id);
 		Response->SetStringField(TEXT("type"), TEXT("response"));
-		Response->SetObjectField(TEXT("payload"), ResponsePayload);
+		Response->SetObjectField(TEXT("payload"), ResultObj);
 
 		FString ResponseStr;
-		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&ResponseStr, 0);
+		TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&ResponseStr);
 		FJsonSerializer::Serialize(Response.ToSharedRef(), Writer);
 
 		SendMessage(ResponseStr);
