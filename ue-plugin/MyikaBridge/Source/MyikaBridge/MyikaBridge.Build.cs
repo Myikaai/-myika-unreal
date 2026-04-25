@@ -11,9 +11,11 @@ public class MyikaBridge : ModuleRules
             "Core",
             "CoreUObject",
             "Engine",
-            "WebSockets",
             "Networking",
-            "Sockets"
+            "Sockets",
+            "Json",
+            "JsonUtilities",
+            "HTTP"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[]

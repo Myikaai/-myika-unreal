@@ -2045,6 +2045,8 @@ dependencies = [
 name = "myika-desktop"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
+ "log",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",
