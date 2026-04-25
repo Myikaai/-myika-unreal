@@ -10,9 +10,22 @@
  *   node tests/stress-test.mjs --proxy-port 17646
  */
 import { createConnection } from 'net';
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 
 const PROXY_PORT = parseInt(process.argv.find((a, i) => process.argv[i - 1] === '--proxy-port') || '17646');
 const TIMEOUT_MS = 60000;
+
+// Journal location (Tauri app_data_dir on Windows)
+const JOURNAL_DIR = join(process.env.APPDATA || '', 'ai.myika.desktop', 'runs');
+
+// Load the real print_test.t3d snippet for paste_bp_nodes tests
+const T3D_SNIPPET = readFileSync(
+  join(import.meta.dirname, '..', 'ue-plugin', 'MyikaBridge', 'Content', 'Myika', 'Snippets', 'print_test.t3d'),
+  'utf-8'
+);
+
+const TEST_BP_PATH = '/Game/__StressTest_Temp';
 
 function call(tool, args) {
   return new Promise((resolve, reject) => {
@@ -196,6 +209,138 @@ await test('run_journal: tool calls produce journal entries when active', async 
   assert(r.ok, 'list_assets should succeed');
   // Journal logging should add negligible overhead (<500ms)
   assert(ms < 5000, `Tool call with journal logging took ${ms}ms (expected <5000ms)`);
+});
+
+// ── paste_bp_nodes: real T3D ──
+
+// Helper: create a throwaway Blueprint for paste/connect tests
+async function createTestBP() {
+  const r = await call('run_python', { code: `
+import unreal
+factory = unreal.BlueprintFactory()
+factory.set_editor_property("parent_class", unreal.Actor)
+asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+bp = asset_tools.create_asset("__StressTest_Temp", "/Game", unreal.Blueprint, factory)
+if bp is None:
+    raise RuntimeError("Failed to create test Blueprint")
+unreal.EditorAssetLibrary.save_asset("${TEST_BP_PATH}")
+print("created")
+` });
+  assert(r.ok && r.result.stdout.includes('created'), `Failed to create test BP: ${r.error?.message || r.result?.stdout}`);
+}
+
+async function deleteTestBP() {
+  await call('run_python', { code: `
+import unreal
+if unreal.EditorAssetLibrary.does_asset_exist("${TEST_BP_PATH}"):
+    unreal.EditorAssetLibrary.delete_asset("${TEST_BP_PATH}")
+` });
+}
+
+await test('paste_bp_nodes: real T3D snippet (2 nodes, ~6KB)', async () => {
+  await deleteTestBP();
+  await createTestBP();
+  try {
+    assert(T3D_SNIPPET.length > 5000, `T3D snippet too small: ${T3D_SNIPPET.length} chars`);
+    const r = await call('paste_bp_nodes', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      t3d_text: T3D_SNIPPET,
+    });
+    assert(r.ok, `Bridge error: ${r.error?.message}`);
+    assert(r.result.success === true, `Paste failed: ${r.result.error}`);
+    assert(r.result.nodes_added === 2, `Expected 2 nodes, got ${r.result.nodes_added}`);
+
+    // Verify BP compiles clean
+    const compileCheck = await call('get_compile_errors', {});
+    assert(compileCheck.ok, 'get_compile_errors failed after paste');
+    const bpErrors = compileCheck.result.blueprint_errors.filter(
+      e => e.asset && e.asset.includes('StressTest_Temp')
+    );
+    assert(bpErrors.length === 0, `BP has compile errors after paste: ${JSON.stringify(bpErrors)}`);
+  } finally {
+    await deleteTestBP();
+  }
+});
+
+await test('paste_bp_nodes + connect_pins: full two-tool pattern', async () => {
+  await deleteTestBP();
+  await createTestBP();
+  try {
+    // Step 1: Paste nodes (without relying on T3D wiring — ReconstructNode breaks LinkedTo)
+    const paste = await call('paste_bp_nodes', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      t3d_text: T3D_SNIPPET,
+    });
+    assert(paste.ok && paste.result.success, `Paste failed: ${paste.result?.error}`);
+    assert(paste.result.nodes_added === 2, `Expected 2 nodes, got ${paste.result.nodes_added}`);
+
+    // Step 2: Wire BeginPlay exec → PrintString exec
+    const connect = await call('connect_pins', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      connections: [{
+        source_node: 'K2Node_Event_0',
+        source_pin: 'then',
+        target_node: 'K2Node_CallFunction_0',
+        target_pin: 'execute',
+      }],
+    });
+    assert(connect.ok, `Bridge error: ${connect.error?.message}`);
+    assert(connect.result.connected === 1, `Expected 1 connection, got ${connect.result.connected}`);
+    assert(connect.result.errors.length === 0, `Connection errors: ${connect.result.errors.join(', ')}`);
+  } finally {
+    await deleteTestBP();
+  }
+});
+
+// ── journal: error context capture ──
+
+await test('run_journal: failed tool call has full error context in response', async () => {
+  // Force a failure — connect_pins on non-existent BP
+  const r = await call('connect_pins', {
+    asset_path: '/Game/Nope/DoesNotExist',
+    graph_name: 'EventGraph',
+    connections: [{ source_node: 'A', source_pin: 'B', target_node: 'C', target_pin: 'D' }],
+  });
+  assert(r.ok, 'Bridge should deliver the response');
+  assert(r.result.success === false, 'Expected success=false');
+  // The response must carry structured error details, not just a boolean
+  assert(r.result.errors.length > 0, `Expected errors array with messages, got: ${JSON.stringify(r.result.errors)}`);
+  assert(r.result.errors[0].length > 0, 'Error message should be non-empty');
+  assert(r.result.connected === 0, `Expected 0 connections, got ${r.result.connected}`);
+});
+
+await test('run_journal: existing journal captures tool results with timing', async () => {
+  // Verify the journal file from the most recent app run captured tool_result entries
+  let files = [];
+  try { files = readdirSync(JOURNAL_DIR).filter(f => f.endsWith('.jsonl')); } catch {}
+  if (files.length === 0) {
+    // No journal files exist — can't verify. This is acceptable when the app
+    // hasn't been used with send_message yet.
+    return;
+  }
+
+  files.sort();
+  const latestJournal = readFileSync(join(JOURNAL_DIR, files[files.length - 1]), 'utf-8');
+  const lines = latestJournal.trim().split('\n').map(l => JSON.parse(l));
+
+  // Verify structure: must have run_start and at least one tool_result
+  const runStart = lines.find(l => l.phase === 'run_start');
+  assert(runStart, 'Journal should have a run_start entry');
+  assert(runStart.prompt, 'run_start should capture the user prompt');
+
+  const toolResults = lines.filter(l => l.phase === 'tool_result');
+  assert(toolResults.length > 0, 'Journal should have at least one tool_result');
+
+  // Every tool_result must have timing and ok status
+  for (const tr of toolResults) {
+    assert(tr.tool, `tool_result missing tool name: ${JSON.stringify(tr)}`);
+    assert(typeof tr.duration_ms === 'number', `tool_result missing duration_ms: ${JSON.stringify(tr)}`);
+    assert(typeof tr.ok === 'boolean', `tool_result missing ok status: ${JSON.stringify(tr)}`);
+    assert(tr.result !== undefined, `tool_result missing result payload: ${JSON.stringify(tr)}`);
+  }
 });
 
 // ── Results ──
