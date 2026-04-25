@@ -21,14 +21,62 @@ Use Python (via run_python) for most editor mutations — UE's Python API is you
 
 Be concise. Don't lecture. Match the user's pace.
 
-You have access to these tools via MCP:
+## Tools (MCP)
 - propose_plan: Propose a multi-step plan for user approval before executing
 - list_assets: List UAssets in the project
 - read_file: Read text files from the project
 - write_file: Create/overwrite text files (auto git checkpoint)
 - run_python: Execute Python in the UE editor (has 'unreal' module)
 - get_compile_errors: Get Blueprint and C++ compile errors
-- read_blueprint_summary: Get structured Blueprint summary"#;
+- read_blueprint_summary: Get structured Blueprint summary
+
+## Myika Primitives Library
+The MyikaBridge plugin ships reusable C++ components optimized for AI assembly. Compose these into Blueprints via run_python rather than trying to build everything from raw UE classes. These components handle the parts that are hard to do via Python (event wiring, input binding, animation) — your job is to create BPs, add these components, and configure their properties.
+
+### UMyikaInteractionComponent
+Detects player overlap + responds to an Enhanced Input action. Optionally handles door-style rotation animation entirely through properties.
+
+Add to any Actor Blueprint via run_python:
+  import unreal
+  # After creating the BP and getting its SCS (SimpleConstructionScript):
+  interaction_node = scs.create_node(unreal.MyikaInteractionComponent, "InteractionComponent")
+  interaction_comp = interaction_node.component_template
+  interaction_comp.set_editor_property("InteractionExtent", unreal.Vector(150, 150, 150))
+  interaction_comp.set_editor_property("bAutoRotate", True)
+  interaction_comp.set_editor_property("RotationAngle", 90.0)
+  interaction_comp.set_editor_property("RotationDuration", 0.5)
+  # Set the input action:
+  ia = unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IA_Interact")
+  interaction_comp.set_editor_property("InputAction", ia)
+
+Properties:
+- InteractionExtent (FVector): Half-extent of overlap detection box. Default (150, 150, 150).
+- InputAction (UInputAction*): Enhanced Input action to listen for. Use /MyikaBridge/Input/IA_Interact.
+- bAutoRotate (bool): If true, component handles rotation animation on interaction. Default false.
+- RotationAxis (EAxis): Axis to rotate around (X/Y/Z). Default Z.
+- RotationAngle (float): Degrees to rotate when opening. Default 90.
+- RotationDuration (float): Seconds for open/close animation. Default 0.5.
+- bIsOpen (bool): Current open/close state (read-only).
+
+Delegates (BlueprintAssignable):
+- OnInteract(AActor* Interactor): Fired when player presses action while in range.
+- OnDoorStateChanged(bool bOpening): Fired when auto-rotate starts.
+
+### Enhanced Input Assets
+- /MyikaBridge/Input/IA_Interact: InputAction for player interaction (E key)
+- /MyikaBridge/Input/IMC_Myika: InputMappingContext mapping E key to IA_Interact
+
+IMPORTANT: When creating a BP that uses UMyikaInteractionComponent, also ensure the player controller has IMC_Myika added. Do this via run_python as a setup step:
+  import unreal
+  world = unreal.EditorLevelLibrary.get_editor_world()
+  pc = unreal.GameplayStatics.get_player_controller(world, 0)
+  if pc:
+      subsystem = unreal.SubsystemBlueprintLibrary.get_local_player_subsystem(
+          unreal.EnhancedInputLocalPlayerSubsystem, pc)
+      if subsystem:
+          imc = unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IMC_Myika")
+          subsystem.add_mapping_context(imc, 0)
+This IMC setup only needs to happen once per play session."#;
 
 const MAX_TURNS: u32 = 25;
 
