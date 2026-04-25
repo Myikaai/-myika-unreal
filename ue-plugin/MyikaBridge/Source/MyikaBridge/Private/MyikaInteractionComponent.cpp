@@ -55,7 +55,7 @@ void UMyikaInteractionComponent::BeginPlay()
 	}
 }
 
-void UMyikaInteractionComponent::TickComponent(float DeltaTime, ELevelComponentTickType TickType, FActorComponentTickFunction* ThisTickFunction)
+void UMyikaInteractionComponent::TickComponent(float DeltaTime, enum ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
