@@ -3,7 +3,7 @@
   "Version": 1,
   "VersionName": "0.1.0",
   "FriendlyName": "Myika Bridge",
-  "Description": "WebSocket bridge for Myika AI assistant",
+  "Description": "WebSocket bridge and AI primitives for Myika AI assistant",
   "Category": "AI",
   "CreatedBy": "Myika AI",
   "CreatedByURL": "https://myika.ai",
@@ -23,6 +23,10 @@
   "Plugins": [
     {
       "Name": "PythonScriptPlugin",
+      "Enabled": true
+    },
+    {
+      "Name": "EnhancedInput",
       "Enabled": true
     }
   ]

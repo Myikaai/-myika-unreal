@@ -15,7 +15,8 @@ public class MyikaBridge : ModuleRules
             "Sockets",
             "Json",
             "JsonUtilities",
-            "HTTP"
+            "HTTP",
+            "EnhancedInput"
         });
 
         PrivateDependencyModuleNames.AddRange(new string[]
