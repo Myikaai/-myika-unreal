@@ -2,6 +2,8 @@
 
 import os
 
+from myika.util.secret_filter import is_blocked_basename, scan_content_for_secrets
+
 TOOL_NAME = "write_file"
 
 ALLOWED_EXTENSIONS = {".cpp", ".h", ".cs", ".ini", ".json", ".py", ".md", ".txt", ".uproject", ".uplugin"}
@@ -18,6 +20,10 @@ def handle(args: dict) -> dict:
     if ".." in rel_path:
         raise ValueError("Path traversal not allowed")
 
+    secret_reason = is_blocked_basename(rel_path)
+    if secret_reason:
+        raise ValueError(f"Refusing to write potential secret file: {secret_reason}")
+
     project_dir = unreal.Paths.project_dir()
     full_path = os.path.normpath(os.path.join(project_dir, rel_path))
 
@@ -27,6 +33,10 @@ def handle(args: dict) -> dict:
     ext = os.path.splitext(full_path)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise ValueError(f"File type not allowed: {ext}")
+
+    secret_label = scan_content_for_secrets(content)
+    if secret_label:
+        raise ValueError(f"Refusing to write file: content contains {secret_label}")
 
     ensure_checkpoint(project_dir)
 
