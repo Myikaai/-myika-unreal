@@ -90,6 +90,45 @@ const TOOLS = [
       },
       required: ['asset_path']
     }
+  },
+  {
+    name: 'paste_bp_nodes',
+    description: 'Paste Blueprint graph nodes from T3D text into a Blueprint graph. Uses FEdGraphUtilities::ImportNodesFromText internally.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Blueprint asset path, e.g. '/Game/Blueprints/BP_Door'" },
+        graph_name: { type: 'string', description: "Target graph name: 'EventGraph', 'ConstructionScript', or a function name" },
+        t3d_text: { type: 'string', description: 'T3D text containing Begin Object/End Object node definitions' }
+      },
+      required: ['asset_path', 'graph_name', 't3d_text']
+    }
+  },
+  {
+    name: 'connect_pins',
+    description: 'Connect Blueprint graph pins by node name and pin name. Supports batch connections — compiles and saves once after all wires are made.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Blueprint asset path, e.g. '/Game/Blueprints/BP_Door'" },
+        graph_name: { type: 'string', description: "Target graph name: 'EventGraph', 'ConstructionScript', or a function name" },
+        connections: {
+          type: 'array',
+          description: 'Array of connections to make',
+          items: {
+            type: 'object',
+            properties: {
+              source_node: { type: 'string', description: "Source node name, e.g. 'K2Node_CustomEvent_0'" },
+              source_pin: { type: 'string', description: "Source pin name, e.g. 'then'" },
+              target_node: { type: 'string', description: "Target node name, e.g. 'K2Node_Timeline_0'" },
+              target_pin: { type: 'string', description: "Target pin name, e.g. 'Play'" }
+            },
+            required: ['source_node', 'source_pin', 'target_node', 'target_pin']
+          }
+        }
+      },
+      required: ['asset_path', 'graph_name', 'connections']
+    }
   }
 ];
 

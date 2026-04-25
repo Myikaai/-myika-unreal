@@ -4,6 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "Components/BoxComponent.h"
 #include "InputAction.h"
+#include "InputMappingContext.h"
 #include "MyikaInteractionComponent.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMyikaInteractSignature, AActor*, Interactor);
@@ -34,6 +35,10 @@ public:
 	/** Enhanced Input action that triggers interaction. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Myika|Interaction")
 	TObjectPtr<UInputAction> InputAction;
+
+	/** Input Mapping Context to auto-register. If null, loads /MyikaBridge/Input/IMC_Myika. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Myika|Interaction")
+	TObjectPtr<UInputMappingContext> MappingContext;
 
 	/** If true, the component rotates the owning actor on interaction (door behavior). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Myika|DoorRotation")

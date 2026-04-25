@@ -32,6 +32,15 @@ UE5.7's Python API CANNOT wire Blueprint node graphs, create Timeline nodes, con
 - run_python: Execute Python in the UE editor (has 'unreal' module)
 - get_compile_errors: Get Blueprint and C++ compile errors
 - read_blueprint_summary: Get structured Blueprint summary
+- paste_bp_nodes: Paste T3D text into a Blueprint graph (EventGraph, ConstructionScript, or a function name). Uses FEdGraphUtilities::ImportNodesFromText internally — this is how the UE editor itself implements Ctrl+V for graph nodes. Use this to CREATE nodes in a graph. Note: LinkedTo references in generated T3D are unreliable — use connect_pins to wire nodes after pasting.
+- connect_pins: Connect Blueprint graph pins by node name and pin name. Supports batch connections (array of {source_node, source_pin, target_node, target_pin}). Use this AFTER paste_bp_nodes to wire nodes together. Compiles and saves once after all connections.
+
+## Tool-Creation Preference Order
+When proposing a new tool or choosing how to implement an editor capability, prefer in this order:
+1. Native UE Python API (unreal.* module) — always try this first
+2. UE console command via execute_console_command
+3. C++ handler exposed as a bridge tool (search UE source for the function the editor calls internally)
+4. Synthetic input (last resort, single-keystroke max, must be verified after the fact)
 
 ## Myika Primitives Library
 The MyikaBridge plugin ships reusable C++ components you MUST use for interactive features. These components handle event wiring, input binding, and animation internally — you configure them via properties. Do NOT try to build interaction/animation from scratch with raw UE classes, Timelines, or event graph wiring. Always compose from these primitives.

@@ -16,6 +16,15 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
 
+// paste_bp_nodes support
+#include "EdGraphUtilities.h"
+#include "EdGraph/EdGraph.h"
+#include "EdGraph/EdGraphNode.h"
+#include "Engine/Blueprint.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "EditorAssetLibrary.h"
+
 DEFINE_LOG_CATEGORY_STATIC(LogMyikaBridge, Log, All);
 
 // Magic GUID from RFC 6455
@@ -250,8 +259,292 @@ void FMyikaBridgeServer::HandleIncomingMessage(const FString& Message)
 // Python Dispatch
 // ============================================================================
 
+// ============================================================================
+// C++ Tool Handlers (bypass Python for direct editor API access)
+// ============================================================================
+
+FString FMyikaBridgeServer::HandlePasteBpNodes(const FString& ArgsJson)
+{
+	// Parse args
+	TSharedPtr<FJsonObject> Args;
+	TSharedRef<TJsonReader<>> ArgsReader = TJsonReaderFactory<>::Create(ArgsJson);
+	if (!FJsonSerializer::Deserialize(ArgsReader, Args) || !Args.IsValid())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"nodes_added\":0,\"error\":\"Failed to parse args JSON\"}}");
+	}
+
+	FString AssetPath = Args->GetStringField(TEXT("asset_path"));
+	FString GraphName = Args->GetStringField(TEXT("graph_name"));
+	FString T3dText = Args->GetStringField(TEXT("t3d_text"));
+
+	if (AssetPath.IsEmpty() || GraphName.IsEmpty() || T3dText.IsEmpty())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"nodes_added\":0,\"error\":\"Missing required args: asset_path, graph_name, t3d_text\"}}");
+	}
+
+	// Load the Blueprint asset
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+	if (!Asset)
+	{
+		FString Err = FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"nodes_added\":0,\"error\":\"%s\"}}"), *Err);
+	}
+
+	UBlueprint* BP = Cast<UBlueprint>(Asset);
+	if (!BP)
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"nodes_added\":0,\"error\":\"Asset is not a Blueprint\"}}");
+	}
+
+	// Find the target graph by name
+	UEdGraph* TargetGraph = nullptr;
+	for (UEdGraph* Graph : BP->UbergraphPages)
+	{
+		if (Graph && Graph->GetName() == GraphName)
+		{
+			TargetGraph = Graph;
+			break;
+		}
+	}
+	if (!TargetGraph)
+	{
+		for (UEdGraph* Graph : BP->FunctionGraphs)
+		{
+			if (Graph && Graph->GetName() == GraphName)
+			{
+				TargetGraph = Graph;
+				break;
+			}
+		}
+	}
+
+	if (!TargetGraph)
+	{
+		FString Err = FString::Printf(TEXT("Graph '%s' not found in Blueprint '%s'"), *GraphName, *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"nodes_added\":0,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Count nodes before paste
+	int32 NodesBefore = TargetGraph->Nodes.Num();
+
+	// Import nodes from T3D text — this is how UE itself implements paste
+	TSet<UEdGraphNode*> PastedNodes;
+	FEdGraphUtilities::ImportNodesFromText(TargetGraph, T3dText, PastedNodes);
+
+	int32 NodesAdded = PastedNodes.Num();
+
+	if (NodesAdded == 0)
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"nodes_added\":0,\"error\":\"ImportNodesFromText added 0 nodes — T3D text may be invalid or incompatible\"}}");
+	}
+
+	// Notify the graph that nodes were added
+	for (UEdGraphNode* Node : PastedNodes)
+	{
+		Node->GetGraph()->NotifyGraphChanged();
+	}
+
+	// Mark BP dirty, recompile, save
+	FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+	FKismetEditorUtilities::CompileBlueprint(BP);
+	UEditorAssetLibrary::SaveAsset(AssetPath, false);
+
+	UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] paste_bp_nodes: Added %d nodes to %s::%s"), NodesAdded, *AssetPath, *GraphName);
+
+	return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":true,\"nodes_added\":%d,\"error\":\"\"}}"), NodesAdded);
+}
+
+FString FMyikaBridgeServer::HandleConnectPins(const FString& ArgsJson)
+{
+	// Parse args
+	TSharedPtr<FJsonObject> Args;
+	TSharedRef<TJsonReader<>> ArgsReader = TJsonReaderFactory<>::Create(ArgsJson);
+	if (!FJsonSerializer::Deserialize(ArgsReader, Args) || !Args.IsValid())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"connected\":0,\"errors\":[\"Failed to parse args JSON\"]}}");
+	}
+
+	FString AssetPath = Args->GetStringField(TEXT("asset_path"));
+	FString GraphName = Args->GetStringField(TEXT("graph_name"));
+
+	if (AssetPath.IsEmpty() || GraphName.IsEmpty())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"connected\":0,\"errors\":[\"Missing asset_path or graph_name\"]}}");
+	}
+
+	// Load Blueprint
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+	UBlueprint* BP = Asset ? Cast<UBlueprint>(Asset) : nullptr;
+	if (!BP)
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"connected\":0,\"errors\":[\"Blueprint not found or not a Blueprint\"]}}");
+	}
+
+	// Find graph
+	UEdGraph* TargetGraph = nullptr;
+	for (UEdGraph* Graph : BP->UbergraphPages)
+	{
+		if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+	}
+	if (!TargetGraph)
+	{
+		for (UEdGraph* Graph : BP->FunctionGraphs)
+		{
+			if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+		}
+	}
+	if (!TargetGraph)
+	{
+		FString Err = FString::Printf(TEXT("Graph '%s' not found"), *GraphName);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"connected\":0,\"errors\":[\"%s\"]}}"), *Err);
+	}
+
+	// Build node name → node map
+	TMap<FString, UEdGraphNode*> NodeMap;
+	for (UEdGraphNode* Node : TargetGraph->Nodes)
+	{
+		if (Node)
+		{
+			NodeMap.Add(Node->GetName(), Node);
+		}
+	}
+
+	// Parse connections array
+	const TArray<TSharedPtr<FJsonValue>>* ConnectionsArray = nullptr;
+	if (!Args->TryGetArrayField(TEXT("connections"), ConnectionsArray) || !ConnectionsArray)
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"connected\":0,\"errors\":[\"Missing connections array\"]}}");
+	}
+
+	const UEdGraphSchema* Schema = TargetGraph->GetSchema();
+	int32 Connected = 0;
+	TArray<FString> Errors;
+
+	for (const TSharedPtr<FJsonValue>& ConnVal : *ConnectionsArray)
+	{
+		const TSharedPtr<FJsonObject>* ConnObj = nullptr;
+		if (!ConnVal.IsValid() || !ConnVal->TryGetObject(ConnObj) || !ConnObj || !(*ConnObj).IsValid())
+		{
+			Errors.Add(TEXT("Invalid connection entry"));
+			continue;
+		}
+
+		FString SrcNode = (*ConnObj)->GetStringField(TEXT("source_node"));
+		FString SrcPin = (*ConnObj)->GetStringField(TEXT("source_pin"));
+		FString TgtNode = (*ConnObj)->GetStringField(TEXT("target_node"));
+		FString TgtPin = (*ConnObj)->GetStringField(TEXT("target_pin"));
+
+		// Find source node and pin
+		UEdGraphNode** SrcNodePtr = NodeMap.Find(SrcNode);
+		if (!SrcNodePtr)
+		{
+			Errors.Add(FString::Printf(TEXT("Source node '%s' not found"), *SrcNode));
+			continue;
+		}
+
+		UEdGraphPin* SrcPinPtr = nullptr;
+		for (UEdGraphPin* Pin : (*SrcNodePtr)->Pins)
+		{
+			if (Pin && Pin->PinName == *SrcPin)
+			{
+				// For output pins, prefer EGPD_Output direction
+				if (Pin->Direction == EGPD_Output)
+				{
+					SrcPinPtr = Pin;
+					break;
+				}
+				if (!SrcPinPtr) SrcPinPtr = Pin; // fallback
+			}
+		}
+		if (!SrcPinPtr)
+		{
+			Errors.Add(FString::Printf(TEXT("Source pin '%s' not found on '%s'"), *SrcPin, *SrcNode));
+			continue;
+		}
+
+		// Find target node and pin
+		UEdGraphNode** TgtNodePtr = NodeMap.Find(TgtNode);
+		if (!TgtNodePtr)
+		{
+			Errors.Add(FString::Printf(TEXT("Target node '%s' not found"), *TgtNode));
+			continue;
+		}
+
+		UEdGraphPin* TgtPinPtr = nullptr;
+		for (UEdGraphPin* Pin : (*TgtNodePtr)->Pins)
+		{
+			if (Pin && Pin->PinName == *TgtPin)
+			{
+				// For input pins, prefer EGPD_Input direction
+				if (Pin->Direction == EGPD_Input)
+				{
+					TgtPinPtr = Pin;
+					break;
+				}
+				if (!TgtPinPtr) TgtPinPtr = Pin; // fallback
+			}
+		}
+		if (!TgtPinPtr)
+		{
+			Errors.Add(FString::Printf(TEXT("Target pin '%s' not found on '%s'"), *TgtPin, *TgtNode));
+			continue;
+		}
+
+		// Try to connect
+		if (Schema->TryCreateConnection(SrcPinPtr, TgtPinPtr))
+		{
+			Connected++;
+			UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Connected %s.%s -> %s.%s"), *SrcNode, *SrcPin, *TgtNode, *TgtPin);
+		}
+		else
+		{
+			Errors.Add(FString::Printf(TEXT("TryCreateConnection failed: %s.%s -> %s.%s"), *SrcNode, *SrcPin, *TgtNode, *TgtPin));
+		}
+	}
+
+	// Compile and save if any connections were made
+	if (Connected > 0)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+		FKismetEditorUtilities::CompileBlueprint(BP);
+		UEditorAssetLibrary::SaveAsset(AssetPath, false);
+	}
+
+	// Build result JSON
+	FString ErrorsJson = TEXT("[");
+	for (int32 i = 0; i < Errors.Num(); i++)
+	{
+		FString Escaped = Errors[i].Replace(TEXT("\""), TEXT("\\\""));
+		if (i > 0) ErrorsJson += TEXT(",");
+		ErrorsJson += FString::Printf(TEXT("\"%s\""), *Escaped);
+	}
+	ErrorsJson += TEXT("]");
+
+	bool bSuccess = Connected > 0 && Errors.Num() == 0;
+	return FString::Printf(
+		TEXT("{\"ok\":true,\"result\":{\"success\":%s,\"connected\":%d,\"errors\":%s}}"),
+		bSuccess ? TEXT("true") : TEXT("false"),
+		Connected,
+		*ErrorsJson
+	);
+}
+
 FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const FString& ArgsJson)
 {
+	// C++ tool handlers — bypass Python for direct editor API access
+	if (ToolName == TEXT("paste_bp_nodes"))
+	{
+		return HandlePasteBpNodes(ArgsJson);
+	}
+
+	if (ToolName == TEXT("connect_pins"))
+	{
+		return HandleConnectPins(ArgsJson);
+	}
+
 	// Build the payload JSON that dispatch_json expects
 	FString PayloadJson = FString::Printf(TEXT("{\"tool\":\"%s\",\"args\":%s}"), *ToolName, *ArgsJson);
 

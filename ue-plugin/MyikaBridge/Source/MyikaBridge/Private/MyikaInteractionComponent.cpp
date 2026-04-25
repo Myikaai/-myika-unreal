@@ -48,6 +48,25 @@ void UMyikaInteractionComponent::BeginPlay()
 	APlayerController* PC = Owner->GetWorld() ? Owner->GetWorld()->GetFirstPlayerController() : nullptr;
 	if (PC && InputAction)
 	{
+		// Auto-register the Input Mapping Context so E key works without manual setup
+		if (ULocalPlayer* LP = PC->GetLocalPlayer())
+		{
+			if (UEnhancedInputLocalPlayerSubsystem* Subsystem = LP->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+			{
+				UInputMappingContext* IMC = MappingContext;
+				if (!IMC)
+				{
+					IMC = Cast<UInputMappingContext>(
+						StaticLoadObject(UInputMappingContext::StaticClass(), nullptr,
+							TEXT("/MyikaBridge/Input/IMC_Myika.IMC_Myika")));
+				}
+				if (IMC)
+				{
+					Subsystem->AddMappingContext(IMC, 0);
+				}
+			}
+		}
+
 		if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(PC->InputComponent))
 		{
 			EIC->BindAction(InputAction, ETriggerEvent::Started, this, &UMyikaInteractionComponent::HandleInteraction);

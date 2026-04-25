@@ -21,7 +21,12 @@ public class MyikaBridge : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new string[]
         {
-            "PythonScriptPlugin"
+            "PythonScriptPlugin",
+            "UnrealEd",
+            "BlueprintGraph",
+            "Kismet",
+            "KismetCompiler",
+            "EditorScriptingUtilities"
         });
     }
 }

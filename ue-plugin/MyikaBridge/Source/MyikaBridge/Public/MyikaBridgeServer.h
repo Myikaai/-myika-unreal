@@ -136,4 +136,18 @@ private:
 	 * TODO: If WebSocket I/O moves off game thread, dispatch back before calling this.
 	 */
 	FString DispatchToolRequest(const FString& ToolName, const FString& ArgsJson);
+
+	/**
+	 * C++ handler for paste_bp_nodes tool.
+	 * Uses FEdGraphUtilities::ImportNodesFromText to paste T3D text into a BP graph.
+	 * Bypasses Python entirely — direct editor API access.
+	 */
+	FString HandlePasteBpNodes(const FString& ArgsJson);
+
+	/**
+	 * C++ handler for connect_pins tool.
+	 * Connects Blueprint graph pins by node name + pin name.
+	 * Supports batch connections — compiles/saves once after all wires.
+	 */
+	FString HandleConnectPins(const FString& ArgsJson);
 };
