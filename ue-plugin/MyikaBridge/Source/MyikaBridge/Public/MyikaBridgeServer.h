@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "HAL/Runnable.h"
 #include "Containers/Queue.h"
+#include "IPythonScriptPlugin.h"
 
 class FSocket;
 
@@ -52,6 +53,11 @@ private:
 	TAtomic<bool> bStopRequested{false};
 	uint16 ListenPort = 17645;
 
+	/** Last time we received any data from the client (for dead-connection detection). */
+	double LastClientActivityTime = 0.0;
+	static constexpr double PingIntervalSecs = 5.0;
+	static constexpr double PingTimeoutSecs = 15.0;
+
 	// --- Thread-safe message queues ---
 	TQueue<FString, EQueueMode::Mpsc> IncomingQueue;  // network thread -> game thread
 	TQueue<FString, EQueueMode::Mpsc> OutgoingQueue;  // game thread -> network thread
@@ -97,6 +103,9 @@ private:
 	/** Write a pong frame (echo back ping payload). */
 	bool WritePongFrame(FSocket* Socket, const TArray<uint8>& PingPayload);
 
+	/** Write a ping frame to detect dead connections. */
+	bool WritePingFrame(FSocket* Socket);
+
 	/** Write a close frame. */
 	bool WriteCloseFrame(FSocket* Socket);
 
@@ -113,4 +122,11 @@ private:
 
 	/** Process one incoming message on the game thread. */
 	void HandleIncomingMessage(const FString& Message);
+
+	/**
+	 * Dispatch a tool request to Python and return the result JSON.
+	 * NOTE: Must be called on the game thread (Python requires it).
+	 * TODO: If WebSocket I/O moves off game thread, dispatch back before calling this.
+	 */
+	FString DispatchToolRequest(const FString& ToolName, const FString& ArgsJson);
 };

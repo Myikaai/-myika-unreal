@@ -1,4 +1,5 @@
 #include "MyikaBridgeServer.h"
+#include "IPythonScriptPlugin.h"
 
 #include "Sockets.h"
 #include "SocketSubsystem.h"
@@ -200,6 +201,105 @@ void FMyikaBridgeServer::HandleIncomingMessage(const FString& Message)
 }
 
 // ============================================================================
+// Python Dispatch
+// ============================================================================
+
+FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const FString& ArgsJson)
+{
+	// Build the payload JSON that dispatch_json expects
+	FString PayloadJson = FString::Printf(TEXT("{\"tool\":\"%s\",\"args\":%s}"), *ToolName, *ArgsJson);
+
+	// Check Python subsystem availability
+	IPythonScriptPlugin* PythonPlugin = IPythonScriptPlugin::Get();
+	if (!PythonPlugin || !PythonPlugin->IsPythonAvailable())
+	{
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Python subsystem not available."));
+		return TEXT("{\"ok\":false,\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Python subsystem not available\"}}");
+	}
+
+	// Escape the payload for embedding in a Python string literal
+	FString Escaped = PayloadJson;
+	Escaped = Escaped.Replace(TEXT("\\"), TEXT("\\\\"));
+	Escaped = Escaped.Replace(TEXT("'"), TEXT("\\'"));
+	Escaped = Escaped.Replace(TEXT("\n"), TEXT("\\n"));
+	Escaped = Escaped.Replace(TEXT("\r"), TEXT(""));
+
+	FString PythonExpr = FString::Printf(
+		TEXT("myika.dispatcher.dispatch_json('%s')"),
+		*Escaped
+	);
+
+	FPythonCommandEx PythonCmd;
+	PythonCmd.Command = PythonExpr;
+	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
+	PythonCmd.FileExecutionScope = EPythonFileExecutionScope::Public;
+
+	bool bSuccess = PythonPlugin->ExecPythonCommandEx(PythonCmd);
+
+	if (!bSuccess)
+	{
+		FString ErrorMsg = TEXT("Python execution failed");
+		for (const FPythonLogOutputEntry& Entry : PythonCmd.LogOutput)
+		{
+			if (Entry.Type == EPythonLogOutputType::Error)
+			{
+				ErrorMsg = Entry.Output;
+				break;
+			}
+		}
+		ErrorMsg = ErrorMsg.Replace(TEXT("\\"), TEXT("\\\\"));
+		ErrorMsg = ErrorMsg.Replace(TEXT("\""), TEXT("\\\""));
+		ErrorMsg = ErrorMsg.Replace(TEXT("\n"), TEXT("\\n"));
+		ErrorMsg = ErrorMsg.Replace(TEXT("\r"), TEXT(""));
+
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Python dispatch failed: %s"), *ErrorMsg);
+		return FString::Printf(TEXT("{\"ok\":false,\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"%s\"}}"), *ErrorMsg);
+	}
+
+	FString Result = PythonCmd.CommandResult;
+
+	// Log Python output to UE log
+	for (const FPythonLogOutputEntry& Entry : PythonCmd.LogOutput)
+	{
+		switch (Entry.Type)
+		{
+		case EPythonLogOutputType::Info:
+			UE_LOG(LogMyikaBridge, Log, TEXT("[Myika/Python] %s"), *Entry.Output);
+			break;
+		case EPythonLogOutputType::Warning:
+			UE_LOG(LogMyikaBridge, Warning, TEXT("[Myika/Python] %s"), *Entry.Output);
+			break;
+		case EPythonLogOutputType::Error:
+			UE_LOG(LogMyikaBridge, Error, TEXT("[Myika/Python] %s"), *Entry.Output);
+			break;
+		}
+	}
+
+	// EvaluateStatement may return string with surrounding quotes — strip them
+	if (Result.Len() >= 2 && Result.StartsWith(TEXT("'")) && Result.EndsWith(TEXT("'")))
+	{
+		Result = Result.Mid(1, Result.Len() - 2);
+		Result = Result.Replace(TEXT("\\'"), TEXT("'"));
+	}
+	else if (Result.Len() >= 2 && Result.StartsWith(TEXT("\"")) && Result.EndsWith(TEXT("\"")))
+	{
+		Result = Result.Mid(1, Result.Len() - 2);
+		Result = Result.Replace(TEXT("\\\""), TEXT("\""));
+	}
+
+	// Validate JSON before returning
+	TSharedPtr<FJsonObject> TestParse;
+	TSharedRef<TJsonReader<>> TestReader = TJsonReaderFactory<>::Create(Result);
+	if (!FJsonSerializer::Deserialize(TestReader, TestParse) || !TestParse.IsValid())
+	{
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Python returned invalid JSON: %s"), *Result);
+		return TEXT("{\"ok\":false,\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Python returned invalid JSON\"}}");
+	}
+
+	return Result;
+}
+
+// ============================================================================
 // SendMessage / SendEvent
 // ============================================================================
 
@@ -283,6 +383,9 @@ uint32 FMyikaBridgeServer::FNetworkRunnable::Run()
 
 						UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] WebSocket handshake successful."));
 
+						// Reset activity timer
+						Owner->LastClientActivityTime = FPlatformTime::Seconds();
+
 						// Queue bridge.ready event to be sent
 						Owner->SendBridgeReady();
 					}
@@ -305,13 +408,29 @@ uint32 FMyikaBridgeServer::FNetworkRunnable::Run()
 		// Client is connected — do I/O
 		if (Owner->bClientConnected && Owner->ClientSocket)
 		{
-			// Check if the connection is still alive
-			ESocketConnectionState ConnState = Owner->ClientSocket->GetConnectionState();
-			if (ConnState == ESocketConnectionState::SCS_ConnectionError)
+			// Check for dead connection via ping timeout
+			double Now = FPlatformTime::Seconds();
+			double TimeSinceActivity = Now - Owner->LastClientActivityTime;
+
+			if (TimeSinceActivity >= FMyikaBridgeServer::PingTimeoutSecs)
 			{
-				UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Client connection lost (state check)."));
+				UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Client ping timeout (%.1fs without activity). Disconnecting."), TimeSinceActivity);
 				Owner->DisconnectClient();
 				continue;
+			}
+
+			// Send a ping periodically to detect dead connections
+			if (TimeSinceActivity >= FMyikaBridgeServer::PingIntervalSecs)
+			{
+				Owner->ClientSocket->SetNonBlocking(false);
+				if (!Owner->WritePingFrame(Owner->ClientSocket))
+				{
+					UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Ping write failed. Client disconnected."));
+					Owner->DisconnectClient();
+					continue;
+				}
+				Owner->ClientSocket->SetNonBlocking(true);
+				// Don't update LastClientActivityTime here — we want pong to do that
 			}
 
 			// Send any queued outgoing messages
@@ -348,6 +467,12 @@ uint32 FMyikaBridgeServer::FNetworkRunnable::Run()
 				if (Owner->ClientSocket)
 				{
 					Owner->ClientSocket->SetNonBlocking(true);
+				}
+
+				// Any successful frame read means the client is alive
+				if (Result != EFrameResult::Error)
+				{
+					Owner->LastClientActivityTime = FPlatformTime::Seconds();
 				}
 
 				switch (Result)
@@ -648,6 +773,12 @@ bool FMyikaBridgeServer::WritePongFrame(FSocket* Socket, const TArray<uint8>& Pi
 		Frame.Append(PingPayload.GetData(), FMath::Min(PingPayload.Num(), 125));
 	}
 	return SocketSend(Socket, Frame.GetData(), Frame.Num());
+}
+
+bool FMyikaBridgeServer::WritePingFrame(FSocket* Socket)
+{
+	uint8 Frame[2] = {0x89, 0x00}; // FIN + ping opcode, zero-length payload
+	return SocketSend(Socket, Frame, 2);
 }
 
 bool FMyikaBridgeServer::WriteCloseFrame(FSocket* Socket)
