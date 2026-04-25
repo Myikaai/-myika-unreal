@@ -1,22 +1,30 @@
 import { useEffect, useRef, useState } from "react";
-import { sendMessage, clearChat, onChatEvent, type ChatEvent } from "../lib/ipc";
+import { sendMessage, clearChat, onChatEvent, resolvePlan, type ChatEvent } from "../lib/ipc";
+import PlanReview from "./PlanReview";
+
+type ChatPhase = "idle" | "planning" | "awaiting_approval" | "executing" | "done";
 
 interface ChatMessage {
   id: number;
-  role: "user" | "assistant" | "tool";
+  role: "user" | "assistant" | "tool" | "plan";
   content: string;
   toolName?: string;
   toolArgs?: string;
   isStreaming?: boolean;
+  planSteps?: string[];
+  planSummary?: string;
+  planStatus?: "pending" | "approved" | "cancelled";
 }
 
 export default function Chat() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [chatPhase, setChatPhase] = useState<ChatPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextId = useRef(0);
+
+  const isLoading = chatPhase !== "idle";
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -59,10 +67,12 @@ export default function Chat() {
             }
             return prev;
           });
-          setIsLoading(false);
+          setChatPhase("idle");
           break;
 
         case "tool_call":
+          // propose_plan is synthetic — PlanReview card is its visual representation
+          if (event.name.endsWith("propose_plan")) break;
           setMessages((prev) => [
             ...prev,
             {
@@ -77,7 +87,6 @@ export default function Chat() {
 
         case "tool_result":
           setMessages((prev) => {
-            // Update the last tool message for this tool
             const idx = [...prev].reverse().findIndex(
               (m) => m.role === "tool" && m.toolName === event.name
             );
@@ -94,9 +103,24 @@ export default function Chat() {
           });
           break;
 
+        case "plan_proposed":
+          setChatPhase("awaiting_approval");
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: nextId.current++,
+              role: "plan",
+              content: event.summary,
+              planSteps: event.steps,
+              planSummary: event.summary,
+              planStatus: "pending",
+            },
+          ]);
+          break;
+
         case "error":
           setError(event.message);
-          setIsLoading(false);
+          setChatPhase("idle");
           break;
       }
     }).then((fn) => {
@@ -112,9 +136,8 @@ export default function Chat() {
 
     setInput("");
     setError(null);
-    setIsLoading(true);
+    setChatPhase("planning");
 
-    // Add user message immediately
     setMessages((prev) => [
       ...prev,
       { id: nextId.current++, role: "user", content: trimmed },
@@ -124,7 +147,45 @@ export default function Chat() {
       await sendMessage(trimmed);
     } catch (e) {
       setError(String(e));
-      setIsLoading(false);
+      setChatPhase("idle");
+    }
+  };
+
+  const handleApprove = async () => {
+    setChatPhase("executing");
+    setMessages((prev) => {
+      const idx = [...prev].reverse().findIndex((m) => m.role === "plan" && m.planStatus === "pending");
+      if (idx >= 0) {
+        const realIdx = prev.length - 1 - idx;
+        const updated = [...prev];
+        updated[realIdx] = { ...updated[realIdx], planStatus: "approved" };
+        return updated;
+      }
+      return prev;
+    });
+    try {
+      await resolvePlan(true);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const handleCancel = async () => {
+    setChatPhase("planning"); // Claude still running, will respond to cancellation
+    setMessages((prev) => {
+      const idx = [...prev].reverse().findIndex((m) => m.role === "plan" && m.planStatus === "pending");
+      if (idx >= 0) {
+        const realIdx = prev.length - 1 - idx;
+        const updated = [...prev];
+        updated[realIdx] = { ...updated[realIdx], planStatus: "cancelled" };
+        return updated;
+      }
+      return prev;
+    });
+    try {
+      await resolvePlan(false);
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -140,6 +201,7 @@ export default function Chat() {
       await clearChat();
       setMessages([]);
       setError(null);
+      setChatPhase("idle");
     } catch (e) {
       console.error("Failed to clear chat:", e);
     }
@@ -162,6 +224,25 @@ export default function Chat() {
           >
             {msg.role === "tool" ? (
               <ToolCard name={msg.toolName || ""} args={msg.toolArgs} content={msg.content} />
+            ) : msg.role === "plan" ? (
+              <div className="max-w-[80%] w-full">
+                {msg.planStatus === "pending" ? (
+                  <PlanReview
+                    steps={msg.planSteps || []}
+                    summary={msg.planSummary || ""}
+                    onApprove={handleApprove}
+                    onCancel={handleCancel}
+                  />
+                ) : (
+                  <div className={`border rounded px-3 py-2 text-sm ${
+                    msg.planStatus === "approved"
+                      ? "border-green-700 bg-green-900/20 text-green-400"
+                      : "border-red-700 bg-red-900/20 text-red-400"
+                  }`}>
+                    {msg.planStatus === "approved" ? "Plan approved — executing..." : "Plan cancelled"}
+                  </div>
+                )}
+              </div>
             ) : (
               <div
                 className={`max-w-[80%] px-3 py-2 rounded text-sm whitespace-pre-wrap ${
@@ -177,10 +258,12 @@ export default function Chat() {
           </div>
         ))}
 
-        {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
+        {isLoading && messages[messages.length - 1]?.role !== "assistant" && chatPhase !== "awaiting_approval" && (
           <div className="flex justify-start">
             <div className="bg-[var(--bg-elevated)] text-muted px-3 py-2 rounded text-sm">
-              <span className="animate-pulse">Thinking...</span>
+              <span className="animate-pulse">
+                {chatPhase === "executing" ? "Executing plan..." : "Thinking..."}
+              </span>
             </div>
           </div>
         )}

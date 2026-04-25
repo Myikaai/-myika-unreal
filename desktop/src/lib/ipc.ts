@@ -40,6 +40,7 @@ export type ChatEvent =
   | { type: "assistant_done"; full_text: string }
   | { type: "tool_call"; name: string; args: string }
   | { type: "tool_result"; name: string; result: string }
+  | { type: "plan_proposed"; steps: string[]; summary: string }
   | { type: "error"; message: string };
 
 export async function sendMessage(message: string): Promise<string> {
@@ -48,6 +49,10 @@ export async function sendMessage(message: string): Promise<string> {
 
 export async function clearChat(): Promise<void> {
   return invoke("clear_chat");
+}
+
+export async function resolvePlan(approved: boolean): Promise<void> {
+  return invoke("resolve_plan", { approved });
 }
 
 export function onChatEvent(callback: (event: ChatEvent) => void): Promise<UnlistenFn> {

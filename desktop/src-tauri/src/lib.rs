@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Manager;
 use std::io::Write;
+use tool_proxy::PlanApproval;
 
 // --- Tauri Commands ---
 
@@ -56,6 +57,15 @@ async fn clear_chat(
     Ok(())
 }
 
+#[tauri::command]
+async fn resolve_plan(
+    approved: bool,
+    plan_approval: tauri::State<'_, Arc<PlanApproval>>,
+) -> Result<(), String> {
+    plan_approval.resolve(approved).await;
+    Ok(())
+}
+
 struct McpConfigPath(PathBuf);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -75,7 +85,8 @@ pub fn run() {
             get_settings,
             save_settings,
             send_message,
-            clear_chat
+            clear_chat,
+            resolve_plan
         ])
         .setup(|app| {
             // Initialize database
@@ -87,10 +98,16 @@ pub fn run() {
             let bridge_state = spawn_bridge_loop(&app.handle());
             let bridge_arc = Arc::new(bridge_state);
 
+            // Plan approval state
+            let plan_approval = Arc::new(PlanApproval::new());
+            app.manage(plan_approval.clone());
+
             // Start tool proxy (TCP server for MCP bridge)
             let bridge_for_proxy = bridge_arc.clone();
+            let app_handle = app.handle().clone();
+            let plan_approval_for_proxy = plan_approval.clone();
             tauri::async_runtime::spawn(async move {
-                tool_proxy::start_tool_proxy(bridge_for_proxy).await;
+                tool_proxy::start_tool_proxy(bridge_for_proxy, app_handle, plan_approval_for_proxy).await;
             });
 
             app.manage(bridge_arc);

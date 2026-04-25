@@ -30,17 +30,7 @@ def handle(args: dict) -> dict:
     if not os.path.isfile(full_path):
         raise FileNotFoundError(f"File not found: {rel_path}")
 
-    file_size = os.path.getsize(full_path)
-    max_bytes = 512 * 1024  # 512 KB
-    truncated = False
-
     with open(full_path, "r", encoding="utf-8") as f:
-        content = f.read(max_bytes)
-        if file_size > max_bytes:
-            truncated = True
+        content = f.read()
 
-    result = {"path": rel_path, "content": content, "size_bytes": file_size}
-    if truncated:
-        result["truncated"] = True
-        result["truncated_at_bytes"] = max_bytes
-    return result
+    return {"path": rel_path, "content": content, "size_bytes": len(content.encode("utf-8"))}

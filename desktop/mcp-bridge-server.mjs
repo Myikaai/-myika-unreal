@@ -13,6 +13,18 @@ const PROXY_PORT = 17646;
 // Tool definitions matching SPEC.md §7
 const TOOLS = [
   {
+    name: 'propose_plan',
+    description: 'Propose a multi-step plan for user approval before executing. MUST be called before any request needing more than 2 tool calls or any write_file call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'Brief summary of what the plan will accomplish' },
+        steps: { type: 'array', items: { type: 'string' }, description: 'Ordered list of steps to execute' }
+      },
+      required: ['summary', 'steps']
+    }
+  },
+  {
     name: 'list_assets',
     description: 'List UAssets in the Unreal Engine project, optionally filtered by path prefix and/or class name.',
     inputSchema: {

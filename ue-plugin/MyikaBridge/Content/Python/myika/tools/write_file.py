@@ -36,13 +36,4 @@ def handle(args: dict) -> dict:
     with open(full_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-    # If a Python tool handler was modified, auto-reload so the next call
-    # picks up the new version instead of the stale cached import.
-    if rel_path.startswith("Plugins/") and rel_path.endswith(".py"):
-        try:
-            from myika.dispatcher import reload_tools
-            reload_tools()
-        except Exception:
-            pass
-
     return {"path": rel_path, "bytes_written": len(content.encode("utf-8"))}

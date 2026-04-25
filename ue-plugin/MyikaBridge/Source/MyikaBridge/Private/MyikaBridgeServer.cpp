@@ -280,17 +280,16 @@ FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const F
 	Escaped = Escaped.Replace(TEXT("\n"), TEXT("\\n"));
 	Escaped = Escaped.Replace(TEXT("\r"), TEXT(""));
 
-	// Write result to temp file instead of returning through EvaluateStatement.
-	// Explicitly close file to ensure flush before C++ reads it.
+	// Write result to temp file instead of returning through EvaluateStatement
 	FString PythonCode = FString::Printf(
-		TEXT("__f=open('%s','w',encoding='utf-8');__f.write(myika.dispatcher.dispatch_json('%s'));__f.close()"),
+		TEXT("open('%s', 'w', encoding='utf-8').write(myika.dispatcher.dispatch_json('%s'))"),
 		*TempPathPy,
 		*Escaped
 	);
 
 	FPythonCommandEx PythonCmd;
 	PythonCmd.Command = PythonCode;
-	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::ExecuteStatement;
+	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 	PythonCmd.FileExecutionScope = EPythonFileExecutionScope::Public;
 
 	bool bSuccess = PythonPlugin->ExecPythonCommandEx(PythonCmd);

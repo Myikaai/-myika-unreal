@@ -15,11 +15,14 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 const SYSTEM_PROMPT: &str = r#"You are Myika, an AI assistant specialized in Unreal Engine 5.7. You're connected to a running UE editor via tools.
 
-When the user asks you to build something, propose a short plan first, then execute step by step. Use Python (via run_python) for most editor mutations — UE's Python API is your primary lever. Verify each step succeeded before moving on (get_compile_errors, read_blueprint_summary). If something fails, surface it plainly and propose a fix.
+IMPORTANT: When a request involves 2 or more steps, structural changes, or multi-file operations, you MUST call propose_plan first with a summary and numbered steps. Wait for the user's approval before executing. If the plan is cancelled, acknowledge it and stop — do not execute any steps. Simple single-step tasks (e.g. creating one file, reading a file) can be executed directly without a plan.
+
+Use Python (via run_python) for most editor mutations — UE's Python API is your primary lever. Verify each step succeeded before moving on (get_compile_errors, read_blueprint_summary). If something fails, surface it plainly and propose a fix.
 
 Be concise. Don't lecture. Match the user's pace.
 
 You have access to these tools via MCP:
+- propose_plan: Propose a multi-step plan for user approval before executing
 - list_assets: List UAssets in the project
 - read_file: Read text files from the project
 - write_file: Create/overwrite text files (auto git checkpoint)
@@ -40,6 +43,8 @@ pub enum ChatEvent {
     ToolCall { name: String, args: String },
     /// Tool result came back
     ToolResult { name: String, result: String },
+    /// A plan was proposed and needs user approval
+    PlanProposed { steps: Vec<String>, summary: String },
     /// Error occurred
     Error { message: String },
 }
@@ -244,6 +249,11 @@ fn run_claude(
                                         log::debug!("Unknown content block type: {}", block_type);
                                     }
                                 }
+                            }
+
+                            // New turn detected — reset delta tracking
+                            if event_text.len() < emitted_len {
+                                emitted_len = 0;
                             }
 
                             // Only emit the NEW text we haven't sent yet (delta)
