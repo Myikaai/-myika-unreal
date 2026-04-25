@@ -33,6 +33,7 @@ Out of scope: physical access to an unlocked workstation; hostile UE plugins ins
 - **Secret-name denylist** *(`util/secret_filter.py`)*. Even when a basename's extension is on the allowlist, file tools refuse to touch names matching `.env*` (except `.env.example`/`.sample`/`.template`), `secrets.*`, `credentials.*`, `service-account*.json`, `*-credentials.json`, `id_rsa*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, etc.
 - **Secret-content scanner** *(`util/secret_filter.py`)*. On read and on write, content is scanned for high-confidence secret markers: PEM private-key headers, AWS access-key IDs, Slack tokens, GitHub PATs, JWTs, Anthropic/OpenAI `sk-`-prefix keys, Google API keys. Matches are refused with a labeled error.
 - **Defensive `.gitignore`.** Both repo trees gitignore `.env`, `.env.*` (allowing `.env.example`), `*.pem`, `*.key`, `*.p12`, `*.pfx`, `secrets.json`, `credentials.json`, `service-account*.json`, `*-credentials.json`, plus build artifacts and Python `__pycache__/`.
+- **Tool-surface policy** *(`util/policy.py`, gated in `dispatcher.py`)*. A project-local `.myika/policy.json` declares which Python tools may run and which project-relative paths each path-taking tool may touch. Three predefined profiles ship: `default` (current open behavior — all tools, no path restrictions), `safe-mode` (disables `run_python`; clamps `read_file`/`write_file` to `Source/`, `Plugins/`, `Config/`, `Content/Python/`, `docs/`, plus root-level text/manifest files), and `strict` (read-only — no `write_file`, no graph mutators, narrow read paths). A studio's minimum config is `{"profile": "safe-mode"}`. Malformed or unknown-profile policy files fail closed to `strict`. The C++ tool dispatcher (`paste_bp_nodes`, `connect_pins`, etc.) needs its own gate reading the same policy file — see roadmap.
 - **No public secrets.** Auditing of the public `myika-unreal` tree shows zero tracked secret-shaped files, zero hardcoded usernames, zero hardcoded absolute paths.
 
 ## Hardening roadmap
@@ -43,7 +44,7 @@ Items below are ordered by impact for "make this acceptable to a studio's securi
 
 - **Local LLM / private routing.** Build a model-provider abstraction so users can target a local model (Ollama, llama.cpp, vLLM), a self-hosted Bedrock/Azure-OpenAI/Vertex endpoint in the customer's own cloud, or BYOK Anthropic with zero-retention headers. Single biggest blocker for studio adoption.
 - **Encrypt bridge token at rest.** Wrap `bridge-token` with platform secret stores: Windows DPAPI (`CryptProtectData`, user scope), macOS Keychain, Linux libsecret. The on-disk file becomes useless on a different account or different machine.
-- **Tool-surface allowlist (`safe-mode` profile).** Add a boot-time policy file (`.myika/policy.json`) declaring which tools are enabled per project, with per-tool path allowlists. A `safe-mode` profile disables `run_python` entirely and exposes only structured tools.
+- **C++ tool gate.** The Python tool dispatcher now respects `.myika/policy.json` (see "Protections in place"), but C++ handlers (`paste_bp_nodes`, `connect_pins`, the upcoming `set_pin_default` / `add_timeline_track` / `read_bp_graph`) route through a separate dispatcher in `MyikaBridgeServer.cpp` that doesn't yet consult the policy. Add a parallel C++ loader for `policy.json` and gate at the C++ entry point so safe-mode genuinely covers the full surface.
 
 ### P1 — should-have
 
@@ -61,6 +62,39 @@ Items below are ordered by impact for "make this acceptable to a studio's securi
 
 - **Signed releases and SBOM.** GitHub Actions producing signed Tauri binaries with attestations and a CycloneDX SBOM.
 - **Per-tool consent UX.** First time the agent calls `write_file` (or any privileged tool) in a session, prompt the user. Cache consent per session, not forever.
+
+## Configuring `.myika/policy.json`
+
+Create `.myika/policy.json` at the project root. Minimum config:
+
+```json
+{ "profile": "safe-mode" }
+```
+
+Override individual fields when needed — anything you specify replaces the base profile's value for that key:
+
+```json
+{
+  "profile": "safe-mode",
+  "enabled_tools": ["list_assets", "read_file", "get_compile_errors", "read_blueprint_summary"],
+  "path_allowlist": {
+    "read_file":  ["Source/MyGame/**", "Config/**", "*.uproject"]
+  }
+}
+```
+
+Profiles:
+
+| Profile     | `run_python` | `write_file` | Graph mutators | Path restrictions          |
+|-------------|--------------|--------------|----------------|----------------------------|
+| `default`   | yes          | yes          | yes            | none (open)                |
+| `safe-mode` | **no**       | yes          | yes            | source/config dirs only    |
+| `strict`    | **no**       | **no**       | **no**         | source/config (read-only)  |
+
+Failure modes:
+- Missing `policy.json` → falls through to `default`
+- Malformed JSON → fails closed to `strict` (logged to UE log)
+- Unknown profile name → fails closed to `strict`
 
 ## What you can do today as a user
 

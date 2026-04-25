@@ -4,9 +4,12 @@ import json
 import io
 import sys
 import importlib
-from typing import Any
+from typing import Any, Optional
+
+from myika.util.policy import Policy, load_policy
 
 TOOL_REGISTRY: dict[str, Any] = {}
+_ACTIVE_POLICY: Optional[Policy] = None
 
 
 def register_tool(name: str, handler):
@@ -14,11 +17,43 @@ def register_tool(name: str, handler):
     TOOL_REGISTRY[name] = handler
 
 
+def get_policy() -> Policy:
+    """Return the active policy, lazy-loading on first call."""
+    global _ACTIVE_POLICY
+    if _ACTIVE_POLICY is None:
+        try:
+            import unreal
+            project_dir = unreal.Paths.project_dir()
+        except Exception:
+            # Outside the editor (tests, tooling) — fall back to default profile.
+            from myika.util.policy import PROFILES
+            _ACTIVE_POLICY = PROFILES["default"]
+            return _ACTIVE_POLICY
+        _ACTIVE_POLICY = load_policy(project_dir)
+        print(f"[Myika] Tool policy: {_ACTIVE_POLICY.profile_name}")
+    return _ACTIVE_POLICY
+
+
+def reload_policy():
+    """Force-reload policy from disk. Returns the new policy."""
+    global _ACTIVE_POLICY
+    _ACTIVE_POLICY = None
+    return get_policy()
+
+
 def dispatch(tool_name: str, args: dict) -> dict:
     """Dispatch a tool call to its handler. Returns result dict."""
     handler = TOOL_REGISTRY.get(tool_name)
     if handler is None:
         return {"ok": False, "error": {"code": "TOOL_NOT_FOUND", "message": f"Unknown tool: {tool_name}"}}
+
+    policy = get_policy()
+    if not policy.is_tool_allowed(tool_name):
+        return {"ok": False, "error": {
+            "code": "TOOL_BLOCKED",
+            "message": f"Tool {tool_name!r} disabled by policy {policy.profile_name!r}",
+        }}
+
     try:
         result = handler(args)
         return {"ok": True, "result": result}

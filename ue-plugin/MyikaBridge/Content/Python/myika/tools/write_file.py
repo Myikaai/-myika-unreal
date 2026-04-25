@@ -24,6 +24,10 @@ def handle(args: dict) -> dict:
     if secret_reason:
         raise ValueError(f"Refusing to write potential secret file: {secret_reason}")
 
+    from myika.dispatcher import get_policy
+    if not get_policy().is_path_allowed(TOOL_NAME, rel_path):
+        raise ValueError(f"Path not in {TOOL_NAME} allowlist for active policy: {rel_path}")
+
     project_dir = unreal.Paths.project_dir()
     full_path = os.path.normpath(os.path.join(project_dir, rel_path))
 
