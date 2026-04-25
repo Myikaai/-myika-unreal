@@ -76,7 +76,10 @@ IMPORTANT: When creating a BP that uses UMyikaInteractionComponent, also ensure 
       if subsystem:
           imc = unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IMC_Myika")
           subsystem.add_mapping_context(imc, 0)
-This IMC setup only needs to happen once per play session."#;
+This IMC setup only needs to happen once per play session.
+
+## Meta-pattern: Asset Creation
+When a feature would require manual asset creation (Input Actions, Materials, Data Tables, etc.), prefer run_python with the appropriate UE Python API call. The UE Python API supports creating most asset types programmatically via unreal.AssetToolsHelpers.get_asset_tools().create_asset(). Manual user steps are a last resort — only fall back to them if you hit a genuine Python API limitation, and surface the limitation explicitly so we can evaluate alternatives."#;
 
 const MAX_TURNS: u32 = 25;
 
