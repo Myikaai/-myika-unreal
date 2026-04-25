@@ -42,7 +42,7 @@ Items below are ordered by impact for "make this acceptable to a studio's securi
 
 ### P0 — required for company use
 
-- **Local LLM / private routing.** Build a model-provider abstraction so users can target a local model (Ollama, llama.cpp, vLLM), a self-hosted Bedrock/Azure-OpenAI/Vertex endpoint in the customer's own cloud, or BYOK Anthropic with zero-retention headers. Single biggest blocker for studio adoption.
+- **Provider routing & local-LLM support.** See `docs/DESIGN/llm-provider-abstraction.md` for the full design. Summary: Myika spawns Claude Code CLI as the agent shell, so the abstraction is over *agent shells*, not LLM clients. v1 ships env-var passthrough for Bedrock/Vertex/corporate-proxy routing of Claude (small PR — no Myika code changes the LLM, just configures the spawned CLI). v2 ships an alternative agent shell that drives a local model (Ollama / vLLM) over MCP for fully on-prem operation.
 - **Encrypt bridge token at rest.** Wrap `bridge-token` with platform secret stores: Windows DPAPI (`CryptProtectData`, user scope), macOS Keychain, Linux libsecret. The on-disk file becomes useless on a different account or different machine.
 - **C++ tool gate.** The Python tool dispatcher now respects `.myika/policy.json` (see "Protections in place"), but C++ handlers (`paste_bp_nodes`, `connect_pins`, the upcoming `set_pin_default` / `add_timeline_track` / `read_bp_graph`) route through a separate dispatcher in `MyikaBridgeServer.cpp` that doesn't yet consult the policy. Add a parallel C++ loader for `policy.json` and gate at the C++ entry point so safe-mode genuinely covers the full surface.
 
