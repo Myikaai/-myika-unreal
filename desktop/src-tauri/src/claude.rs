@@ -150,9 +150,10 @@ fn run_claude(
         .arg("--mcp-config").arg(mcp_config_path)
         .arg("--strict-mcp-config")
         .arg("--tools").arg("")  // disable all built-in tools — only MCP UE tools
+        .arg("--allowedTools").arg("mcp__myika-bridge__*")  // auto-approve all our MCP tools
         .arg("--no-session-persistence")
         .arg("--max-turns").arg(MAX_TURNS.to_string())
-        .arg("--permission-mode").arg("auto")
+        .arg("--permission-mode").arg("bypassPermissions")
         .arg("--")
         .arg(prompt)
         .stdout(Stdio::piped())
