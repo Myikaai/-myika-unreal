@@ -78,17 +78,20 @@ These assets may not exist yet in a fresh project. Before referencing them, ALWA
       ia = asset_tools.create_asset("IA_Interact", "/MyikaBridge/Input", unreal.InputAction, ia_factory)
       ia.set_editor_property("ValueType", unreal.InputActionValueType.BOOLEAN)
       unreal.EditorAssetLibrary.save_asset("/MyikaBridge/Input/IA_Interact")
-  # Create IMC_Myika if missing
+  # Create IMC_Myika if missing and add E key mapping
   if not unreal.EditorAssetLibrary.does_asset_exist("/MyikaBridge/Input/IMC_Myika"):
       imc_factory = unreal.InputMappingContextFactory()
       imc = asset_tools.create_asset("IMC_Myika", "/MyikaBridge/Input", unreal.InputMappingContext, imc_factory)
       ia_ref = unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IA_Interact")
-      mapping = unreal.EnhancedActionKeyMapping()
-      mapping.set_editor_property("Action", ia_ref)
-      mapping.set_editor_property("Key", unreal.Key("E"))
-      mappings = list(imc.get_editor_property("Mappings"))
-      mappings.append(mapping)
-      imc.set_editor_property("Mappings", mappings)
+      # FKey construction: use Key() + import_text(), NOT Key("E")
+      e_key = unreal.Key()
+      e_key.import_text("E")
+      # map_key adds to default_key_mappings, then copy to Mappings
+      imc.modify()
+      imc.map_key(ia_ref, e_key)
+      dkm = imc.get_editor_property("default_key_mappings")
+      sub = list(dkm.get_editor_property("mappings"))
+      imc.set_editor_property("Mappings", sub)
       unreal.EditorAssetLibrary.save_asset("/MyikaBridge/Input/IMC_Myika")
 
 This asset creation step MUST be part of your plan whenever you build something that uses UMyikaInteractionComponent. Do it as the first step, before creating any BP that references these assets.

@@ -86,15 +86,16 @@ def create_input_assets():
                     break
 
         if not already_mapped:
-            # Create the mapping: E key -> IA_Interact
-            mapping = unreal.EnhancedActionKeyMapping()
-            mapping.set_editor_property("Action", ia_asset)
-            mapping.set_editor_property("Key", unreal.Key("E"))
+            # FKey construction: use Key() + import_text(), NOT Key("E")
+            e_key = unreal.Key()
+            e_key.import_text("E")
 
-            # Add to mappings array
-            mappings = list(imc_asset.get_editor_property("Mappings"))
-            mappings.append(mapping)
-            imc_asset.set_editor_property("Mappings", mappings)
+            # map_key adds to default_key_mappings, then copy to Mappings
+            imc_asset.modify()
+            imc_asset.map_key(ia_asset, e_key)
+            dkm = imc_asset.get_editor_property("default_key_mappings")
+            sub = list(dkm.get_editor_property("mappings"))
+            imc_asset.set_editor_property("Mappings", sub)
 
             unreal.log("[Myika] Added E key -> IA_Interact mapping to IMC_Myika")
         else:
