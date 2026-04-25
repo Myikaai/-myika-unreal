@@ -4,8 +4,8 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 // --- Bridge ---
 
 export type BridgeStatus =
-  | { status: "disconnected" }
-  | { status: "connecting" }
+  | { status: "disconnected"; error: string | null }
+  | { status: "connecting"; attempt: number }
   | { status: "connected"; project_name: string; ue_version: string };
 
 export async function getBridgeStatus(): Promise<BridgeStatus> {
@@ -55,6 +55,22 @@ export async function resolvePlan(approved: boolean): Promise<void> {
   return invoke("resolve_plan", { approved });
 }
 
+export async function reconnectBridge(): Promise<void> {
+  return invoke("reconnect_bridge");
+}
+
 export function onChatEvent(callback: (event: ChatEvent) => void): Promise<UnlistenFn> {
   return listen<ChatEvent>("chat-event", (event) => callback(event.payload));
+}
+
+// --- App Errors ---
+
+export interface AppError {
+  code: string;
+  message: string;
+  details: string;
+}
+
+export function onAppError(callback: (error: AppError) => void): Promise<UnlistenFn> {
+  return listen<AppError>("app-error", (event) => callback(event.payload));
 }

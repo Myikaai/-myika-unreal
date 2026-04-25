@@ -1,44 +1,45 @@
 import { useEffect, useState } from "react";
-import { type BridgeStatus as BridgeStatusType, getBridgeStatus, onBridgeStatusChanged } from "../lib/ipc";
+import { type BridgeStatus as BridgeStatusType, getBridgeStatus, onBridgeStatusChanged, reconnectBridge } from "../lib/ipc";
 
 export default function BridgeStatus() {
-  const [status, setStatus] = useState<BridgeStatusType>({ status: "disconnected" });
+  const [status, setStatus] = useState<BridgeStatusType>({ status: "disconnected", error: null });
 
   useEffect(() => {
-    // Fetch initial status on mount
     getBridgeStatus().then(setStatus).catch(() => {});
-
-    // Listen for status changes
     const unlisten = onBridgeStatusChanged(setStatus);
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
+    return () => { unlisten.then((fn) => fn()); };
   }, []);
-
-  let dotColor: string;
-  let label: string;
 
   switch (status.status) {
     case "connected":
-      dotColor = "bg-green-500";
-      label = `Connected to UE: ${status.project_name}`;
-      break;
+      return (
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-green-500" />
+          <span className="text-muted">Connected · {status.project_name} · {status.ue_version}</span>
+        </div>
+      );
     case "connecting":
-      dotColor = "bg-yellow-500";
-      label = "Connecting...";
-      break;
+      return (
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-yellow-500" />
+          <span className="text-muted">Connecting · attempt {status.attempt}/∞</span>
+        </div>
+      );
     case "disconnected":
     default:
-      dotColor = "bg-red-500";
-      label = "Disconnected";
-      break;
+      return (
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-red-500" />
+          <span className="text-muted">
+            Disconnected{status.status === "disconnected" && status.error ? ` · ${status.error}` : ""}
+          </span>
+          <button
+            onClick={() => reconnectBridge()}
+            className="ml-2 px-2 py-0.5 text-xs border border-[var(--border)] rounded hover:bg-[var(--bg-elevated)] text-muted hover:text-primary transition-colors"
+          >
+            Reconnect
+          </button>
+        </div>
+      );
   }
-
-  return (
-    <div className="flex items-center gap-2">
-      <span className={`w-2 h-2 rounded-full ${dotColor}`} />
-      <span className="text-muted">{label}</span>
-    </div>
-  );
 }

@@ -10,6 +10,8 @@ interface ChatMessage {
   content: string;
   toolName?: string;
   toolArgs?: string;
+  toolResult?: string;
+  toolError?: boolean;
   isStreaming?: boolean;
   planSteps?: string[];
   planSummary?: string;
@@ -85,7 +87,8 @@ export default function Chat() {
           ]);
           break;
 
-        case "tool_result":
+        case "tool_result": {
+          const isError = event.result.startsWith("Error:") || event.result.startsWith("Tool proxy error:");
           setMessages((prev) => {
             const idx = [...prev].reverse().findIndex(
               (m) => m.role === "tool" && m.toolName === event.name
@@ -95,13 +98,16 @@ export default function Chat() {
               const updated = [...prev];
               updated[realIdx] = {
                 ...updated[realIdx],
-                content: `${event.name} completed`,
+                content: isError ? `${event.name} failed` : `${event.name} completed`,
+                toolResult: event.result,
+                toolError: isError,
               };
               return updated;
             }
             return prev;
           });
           break;
+        }
 
         case "plan_proposed":
           setChatPhase("awaiting_approval");
@@ -223,7 +229,7 @@ export default function Chat() {
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             {msg.role === "tool" ? (
-              <ToolCard name={msg.toolName || ""} args={msg.toolArgs} content={msg.content} />
+              <ToolCard name={msg.toolName || ""} args={msg.toolArgs} content={msg.content} result={msg.toolResult} isError={msg.toolError} />
             ) : msg.role === "plan" ? (
               <div className="max-w-[80%] w-full">
                 {msg.planStatus === "pending" ? (
@@ -312,26 +318,39 @@ export default function Chat() {
   );
 }
 
-function ToolCard({ name, args, content }: { name: string; args?: string; content: string }) {
+function ToolCard({ name, args, content, result, isError }: { name: string; args?: string; content: string; result?: string; isError?: boolean }) {
   const [expanded, setExpanded] = useState(false);
 
+  const borderClass = isError ? "border-red-700" : "border-[var(--border)]";
+  const nameClass = isError ? "text-red-400" : "text-[var(--accent)]";
+  const statusClass = isError ? "text-red-400" : "text-muted";
+
   return (
-    <div className="max-w-[80%] border border-[var(--border)] rounded bg-[var(--bg-surface)] text-sm overflow-hidden">
+    <div className={`max-w-[80%] border ${borderClass} rounded bg-[var(--bg-surface)] text-sm overflow-hidden`}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-elevated)] transition-colors text-left"
       >
         <span className="text-xs text-muted">{expanded ? "▼" : "▶"}</span>
-        <span className="font-mono text-[var(--accent)] text-xs">{name}</span>
-        <span className="text-muted text-xs ml-auto">{content}</span>
+        <span className={`font-mono ${nameClass} text-xs`}>{name}</span>
+        <span className={`${statusClass} text-xs ml-auto`}>{content}</span>
       </button>
-      {expanded && args && (
+      {expanded && (
         <div className="px-3 py-2 border-t border-[var(--border)] bg-[var(--bg-base)]">
-          <pre className="text-xs text-muted font-mono whitespace-pre-wrap overflow-x-auto">
-            {(() => {
-              try { return JSON.stringify(JSON.parse(args), null, 2); } catch { return args; }
-            })()}
-          </pre>
+          {args && (
+            <pre className="text-xs text-muted font-mono whitespace-pre-wrap overflow-x-auto mb-2">
+              {(() => {
+                try { return JSON.stringify(JSON.parse(args), null, 2); } catch { return args; }
+              })()}
+            </pre>
+          )}
+          {result && (
+            <pre className={`text-xs font-mono whitespace-pre-wrap overflow-x-auto ${isError ? "text-red-300" : "text-muted"}`}>
+              {(() => {
+                try { return JSON.stringify(JSON.parse(result), null, 2); } catch { return result; }
+              })()}
+            </pre>
+          )}
         </div>
       )}
     </div>

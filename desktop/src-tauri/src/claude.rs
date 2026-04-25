@@ -1,14 +1,17 @@
 use crate::db::{AppSettings, Db};
+use crate::run_journal::RunJournal;
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+
+type JournalState = Arc<std::sync::Mutex<Option<RunJournal>>>;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -230,6 +233,7 @@ pub fn send_message_blocking(
     chat_state: Arc<ChatState>,
     db: Arc<Db>,
     mcp_config_path: PathBuf,
+    journal_state: JournalState,
 ) {
     // Check if already running
     if chat_state.is_running.swap(true, Ordering::SeqCst) {
@@ -249,6 +253,20 @@ pub fn send_message_blocking(
     // Add to history
     chat_state.history.lock().unwrap().push(("user".to_string(), message.clone()));
 
+    // Start run journal
+    let runs_dir = app.path().app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("runs");
+    match RunJournal::start(&runs_dir, &message) {
+        Ok(journal) => {
+            *journal_state.lock().expect("journal lock") = Some(journal);
+            log::info!("Run journal started in {:?}", runs_dir);
+        }
+        Err(e) => {
+            log::warn!("Failed to start run journal: {}", e);
+        }
+    }
+
     // Spawn a plain OS thread — completely off the tokio runtime
     std::thread::spawn(move || {
         log::info!("Claude worker thread started");
@@ -266,9 +284,20 @@ pub fn send_message_blocking(
             }
             Err(e) => {
                 log::error!("Chat error: {}", e);
-                let _ = app.emit("chat-event", ChatEvent::Error { message: e });
+                let _ = app.emit("chat-event", ChatEvent::Error { message: e.clone() });
+                let _ = app.emit("app-error", serde_json::json!({
+                    "code": "CLAUDE_ERROR",
+                    "message": "Claude CLI failed",
+                    "details": e
+                }));
             }
         }
+
+        // End run journal
+        if let Some(journal) = journal_state.lock().expect("journal lock").as_mut() {
+            journal.end();
+        }
+        *journal_state.lock().expect("journal lock") = None;
 
         chat_state.is_running.store(false, Ordering::SeqCst);
     });

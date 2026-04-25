@@ -21,8 +21,12 @@ const MAX_BACKOFF_SECS: u64 = 10;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum BridgeStatus {
-    Disconnected,
-    Connecting,
+    Disconnected {
+        error: Option<String>,
+    },
+    Connecting {
+        attempt: u32,
+    },
     Connected {
         project_name: String,
         ue_version: String,
@@ -57,6 +61,7 @@ enum BridgeCommand {
 pub struct BridgeState {
     status: Arc<Mutex<BridgeStatus>>,
     cmd_tx: mpsc::Sender<BridgeCommand>,
+    reconnect_notify: Arc<tokio::sync::Notify>,
 }
 
 // --- Tauri command ---
@@ -72,6 +77,11 @@ pub async fn get_bridge_status(
 // --- Public API for other modules ---
 
 impl BridgeState {
+    /// Signal the bridge loop to reconnect immediately (resets backoff).
+    pub async fn reconnect(&self) {
+        self.reconnect_notify.notify_one();
+    }
+
     /// Send a tool request over the bridge and wait for the response.
     pub async fn send_tool_request(&self, tool: String, args: Value) -> Result<Value, String> {
         let id = Uuid::new_v4().to_string();
@@ -113,19 +123,21 @@ async fn set_status(
 }
 
 pub fn spawn_bridge_loop(app: &AppHandle) -> BridgeState {
-    let status = Arc::new(Mutex::new(BridgeStatus::Disconnected));
+    let status = Arc::new(Mutex::new(BridgeStatus::Disconnected { error: None }));
     let (cmd_tx, cmd_rx) = mpsc::channel::<BridgeCommand>(64);
+    let reconnect_notify = Arc::new(tokio::sync::Notify::new());
 
     let state = BridgeState {
         status: status.clone(),
         cmd_tx,
+        reconnect_notify: reconnect_notify.clone(),
     };
 
     let app_handle = app.clone();
     let status_clone = status.clone();
 
     tauri::async_runtime::spawn(async move {
-        bridge_loop(app_handle, status_clone, cmd_rx).await;
+        bridge_loop(app_handle, status_clone, cmd_rx, reconnect_notify).await;
     });
 
     state
@@ -226,12 +238,21 @@ async fn bridge_loop(
     app: AppHandle,
     status: Arc<Mutex<BridgeStatus>>,
     mut cmd_rx: mpsc::Receiver<BridgeCommand>,
+    reconnect_notify: Arc<tokio::sync::Notify>,
 ) {
     let mut backoff_secs: u64 = 1;
+    let mut attempt: u32 = 0;
+    let mut was_connected = false;
 
     loop {
-        set_status(&status, BridgeStatus::Connecting, &app).await;
-        log::info!("Connecting to UE bridge at {}:{}", BRIDGE_HOST, BRIDGE_PORT);
+        attempt += 1;
+        set_status(&status, BridgeStatus::Connecting { attempt }, &app).await;
+        log::info!(
+            "Connecting to UE bridge at {}:{} (attempt {})",
+            BRIDGE_HOST,
+            BRIDGE_PORT,
+            attempt
+        );
 
         let result = async {
             let mut tcp_stream =
@@ -251,20 +272,78 @@ async fn bridge_loop(
             Ok(ws_stream) => {
                 log::info!("Connected to UE bridge");
                 backoff_secs = 1;
+                attempt = 0;
+                was_connected = true;
 
                 handle_connection(ws_stream, &app, &status, &mut cmd_rx).await;
 
-                set_status(&status, BridgeStatus::Disconnected, &app).await;
+                let error = "Connection closed".to_string();
+                set_status(
+                    &status,
+                    BridgeStatus::Disconnected {
+                        error: Some(error.clone()),
+                    },
+                    &app,
+                )
+                .await;
+
+                // Emit app-error only when transitioning from connected to disconnected
+                let _ = app.emit(
+                    "app-error",
+                    serde_json::json!({
+                        "code": "BRIDGE_DISCONNECTED",
+                        "message": "Lost connection to Unreal Engine editor",
+                        "details": error
+                    }),
+                );
+
                 log::info!("Disconnected from UE bridge, will retry...");
             }
             Err(e) => {
                 log::warn!("Failed to connect to UE bridge: {}", e);
-                set_status(&status, BridgeStatus::Disconnected, &app).await;
+
+                // Extract short error code for display
+                let short_error = if e.contains("ECONNREFUSED") || e.contains("Connection refused")
+                {
+                    "ECONNREFUSED".to_string()
+                } else if e.contains("token") {
+                    "AUTH_FAILED".to_string()
+                } else {
+                    e.clone()
+                };
+
+                set_status(
+                    &status,
+                    BridgeStatus::Disconnected {
+                        error: Some(short_error),
+                    },
+                    &app,
+                )
+                .await;
+
+                // Only emit app-error if we were previously connected (not startup retries)
+                if was_connected {
+                    let _ = app.emit(
+                        "app-error",
+                        serde_json::json!({
+                            "code": "BRIDGE_DISCONNECTED",
+                            "message": "Lost connection to Unreal Engine editor",
+                            "details": e
+                        }),
+                    );
+                }
             }
         }
 
-        // Wait before retrying
-        sleep(Duration::from_secs(backoff_secs)).await;
+        // Wait before retrying — but allow immediate retry via reconnect_notify
+        tokio::select! {
+            _ = sleep(Duration::from_secs(backoff_secs)) => {}
+            _ = reconnect_notify.notified() => {
+                log::info!("Manual reconnect requested, resetting backoff");
+                backoff_secs = 1;
+                attempt = 0;
+            }
+        }
         backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
     }
 }

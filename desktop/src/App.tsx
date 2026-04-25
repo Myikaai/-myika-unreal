@@ -1,6 +1,7 @@
 import Chat from "./components/Chat";
 import BridgeStatus from "./components/BridgeStatus";
 import Settings from "./components/Settings";
+import ToastContainer from "./components/ToastContainer";
 import { useState } from "react";
 
 function App() {
@@ -60,6 +61,7 @@ function App() {
       </footer>
 
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+      <ToastContainer />
     </div>
   );
 }

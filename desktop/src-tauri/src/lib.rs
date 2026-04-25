@@ -1,17 +1,21 @@
 mod bridge;
 mod claude;
 mod db;
+mod run_journal;
 mod tool_proxy;
 mod tools;
 
 use bridge::{get_bridge_status, spawn_bridge_loop};
 use claude::ChatState;
 use db::{AppSettings, Db};
+use run_journal::RunJournal;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Manager;
 use std::io::Write;
 use tool_proxy::PlanApproval;
+
+type JournalState = Arc<std::sync::Mutex<Option<RunJournal>>>;
 
 // --- Tauri Commands ---
 
@@ -35,14 +39,16 @@ async fn send_message(
     db: tauri::State<'_, Arc<Db>>,
     chat_state: tauri::State<'_, Arc<ChatState>>,
     mcp_config: tauri::State<'_, McpConfigPath>,
+    journal: tauri::State<'_, JournalState>,
 ) -> Result<String, String> {
     let settings = db.get_settings();
     let chat_state = chat_state.inner().clone();
     let db = db.inner().clone();
     let mcp_path = mcp_config.0.clone();
+    let journal = journal.inner().clone();
 
     // Fires off an OS thread — completely off the tokio runtime
-    claude::send_message_blocking(app, message, settings, chat_state, db, mcp_path);
+    claude::send_message_blocking(app, message, settings, chat_state, db, mcp_path, journal);
 
     Ok("sent".to_string())
 }
@@ -66,6 +72,14 @@ async fn resolve_plan(
     Ok(())
 }
 
+#[tauri::command]
+async fn reconnect_bridge(
+    state: tauri::State<'_, Arc<bridge::BridgeState>>,
+) -> Result<(), String> {
+    state.reconnect().await;
+    Ok(())
+}
+
 struct McpConfigPath(PathBuf);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -86,7 +100,8 @@ pub fn run() {
             save_settings,
             send_message,
             clear_chat,
-            resolve_plan
+            resolve_plan,
+            reconnect_bridge
         ])
         .setup(|app| {
             // Initialize database
@@ -102,19 +117,24 @@ pub fn run() {
             let plan_approval = Arc::new(PlanApproval::new());
             app.manage(plan_approval.clone());
 
-            // Start tool proxy (TCP server for MCP bridge)
-            let bridge_for_proxy = bridge_arc.clone();
-            let app_handle = app.handle().clone();
-            let plan_approval_for_proxy = plan_approval.clone();
-            tauri::async_runtime::spawn(async move {
-                tool_proxy::start_tool_proxy(bridge_for_proxy, app_handle, plan_approval_for_proxy).await;
-            });
-
-            app.manage(bridge_arc);
+            // Run journal state (None until a run starts)
+            let journal_state: JournalState = Arc::new(std::sync::Mutex::new(None));
+            app.manage(journal_state.clone());
 
             // Chat state
             let chat_state = Arc::new(ChatState::new());
             app.manage(chat_state);
+
+            // Start tool proxy (TCP server for MCP bridge)
+            let bridge_for_proxy = bridge_arc.clone();
+            let app_handle = app.handle().clone();
+            let plan_approval_for_proxy = plan_approval.clone();
+            let journal_for_proxy = journal_state.clone();
+            tauri::async_runtime::spawn(async move {
+                tool_proxy::start_tool_proxy(bridge_for_proxy, app_handle, plan_approval_for_proxy, journal_for_proxy).await;
+            });
+
+            app.manage(bridge_arc);
 
             // MCP config path
             let mcp_config_path = std::env::current_exe()
