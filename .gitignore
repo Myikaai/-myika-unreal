@@ -9,6 +9,19 @@
 *.user
 *.userosscache
 *.sln.docstates
+
+# Secrets — defense in depth (never commit credentials)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
+service-account*.json
+*-credentials.json
 *.env
 
 # User-specific files (MonoDevelop/Xamarin Studio)

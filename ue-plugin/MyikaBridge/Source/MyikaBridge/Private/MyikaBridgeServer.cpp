@@ -12,6 +12,9 @@
 #include "Dom/JsonObject.h"
 #include "Misc/App.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
+#include "HAL/PlatformMisc.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMyikaBridge, Log, All);
 
@@ -64,9 +67,21 @@ void FMyikaBridgeServer::Start(uint16 Port)
 	ListenSocket->SetReuseAddr(true);
 	ListenSocket->SetNonBlocking(true);
 
-	// Bind to 0.0.0.0:Port
+	// Bind to 127.0.0.1:Port — loopback only.
+	// We deliberately do NOT bind to 0.0.0.0; the bridge has no auth at the
+	// transport layer, so exposing it on any non-loopback interface (LAN, VPN,
+	// public Wi-Fi) would allow unauthenticated remote code execution inside
+	// the Unreal Editor via run_python.
 	TSharedRef<FInternetAddr> BindAddr = SocketSub->CreateInternetAddr();
-	BindAddr->SetAnyAddress();
+	bool bIsValidIp = false;
+	BindAddr->SetIp(TEXT("127.0.0.1"), bIsValidIp);
+	if (!bIsValidIp)
+	{
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Failed to set loopback bind address."));
+		SocketSub->DestroySocket(ListenSocket);
+		ListenSocket = nullptr;
+		return;
+	}
 	BindAddr->SetPort(ListenPort);
 
 	if (!ListenSocket->Bind(*BindAddr))
@@ -80,6 +95,16 @@ void FMyikaBridgeServer::Start(uint16 Port)
 	if (!ListenSocket->Listen(1))
 	{
 		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Failed to listen on port %d."), ListenPort);
+		SocketSub->DestroySocket(ListenSocket);
+		ListenSocket = nullptr;
+		return;
+	}
+
+	// Load or create the shared-secret token used to authenticate the desktop app.
+	AuthToken = LoadOrCreateAuthToken();
+	if (AuthToken.IsEmpty())
+	{
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Failed to load/create auth token; refusing to start."));
 		SocketSub->DestroySocket(ListenSocket);
 		ListenSocket = nullptr;
 		return;
@@ -581,8 +606,9 @@ bool FMyikaBridgeServer::PerformWebSocketHandshake(FSocket* Socket)
 
 	UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] HTTP Upgrade Request (%d bytes):\n%s"), Request.Len(), *Request);
 
-	// Extract Sec-WebSocket-Key header
+	// Extract Sec-WebSocket-Key and X-Myika-Token headers
 	FString WebSocketKey;
+	FString PresentedToken;
 	TArray<FString> Lines;
 	Request.ParseIntoArrayLines(Lines);
 	for (const FString& Line : Lines)
@@ -591,13 +617,29 @@ bool FMyikaBridgeServer::PerformWebSocketHandshake(FSocket* Socket)
 		if (Trimmed.StartsWith(TEXT("Sec-WebSocket-Key:"), ESearchCase::IgnoreCase))
 		{
 			WebSocketKey = Trimmed.Mid(18).TrimStartAndEnd();
-			break;
+		}
+		else if (Trimmed.StartsWith(TEXT("X-Myika-Token:"), ESearchCase::IgnoreCase))
+		{
+			PresentedToken = Trimmed.Mid(14).TrimStartAndEnd();
 		}
 	}
 
 	if (WebSocketKey.IsEmpty())
 	{
 		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] No Sec-WebSocket-Key found in handshake request."));
+		return false;
+	}
+
+	// Validate the shared-secret token before doing any further protocol work.
+	// Plain != is fine here: this is local IPC, not a network attacker, so a
+	// timing side channel against another process running as the same user is
+	// not part of our threat model.
+	if (PresentedToken != AuthToken)
+	{
+		const FString Resp = TEXT("HTTP/1.1 401 Unauthorized\r\n\r\n");
+		FTCHARToUTF8 RespUtf8(*Resp);
+		SocketSend(Socket, (const uint8*)RespUtf8.Get(), RespUtf8.Length());
+		UE_LOG(LogMyikaBridge, Warning, TEXT("[Myika] Rejected handshake: bad/missing X-Myika-Token."));
 		return false;
 	}
 
@@ -866,4 +908,63 @@ void FMyikaBridgeServer::DisconnectClient()
 FString FMyikaBridgeServer::NewUUID()
 {
 	return FGuid::NewGuid().ToString(EGuidFormats::DigitsWithHyphensLower);
+}
+
+// ============================================================================
+// Auth Token
+// ============================================================================
+
+FString FMyikaBridgeServer::LoadOrCreateAuthToken()
+{
+	const FString LocalAppData = FPlatformMisc::GetEnvironmentVariable(TEXT("LOCALAPPDATA"));
+	if (LocalAppData.IsEmpty())
+	{
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] LOCALAPPDATA env var is empty; cannot locate token file."));
+		return FString();
+	}
+
+	const FString TokenDir = FPaths::Combine(LocalAppData, TEXT("Myika"));
+	const FString TokenPath = FPaths::Combine(TokenDir, TEXT("bridge-token"));
+
+	IFileManager& FileMgr = IFileManager::Get();
+
+	if (FileMgr.FileExists(*TokenPath))
+	{
+		FString Existing;
+		if (!FFileHelper::LoadFileToString(Existing, *TokenPath))
+		{
+			UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Token file exists but failed to read: %s"), *TokenPath);
+			return FString();
+		}
+		Existing = Existing.TrimStartAndEnd();
+		if (Existing.IsEmpty())
+		{
+			UE_LOG(LogMyikaBridge, Warning, TEXT("[Myika] Token file is empty, regenerating: %s"), *TokenPath);
+		}
+		else
+		{
+			UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Loaded existing auth token from %s"), *TokenPath);
+			return Existing;
+		}
+	}
+
+	if (!FileMgr.DirectoryExists(*TokenDir) && !FileMgr.MakeDirectory(*TokenDir, true))
+	{
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Failed to create token directory: %s"), *TokenDir);
+		return FString();
+	}
+
+	// 256 bits of entropy: two GUIDs concatenated as 64 hex chars.
+	const FString NewToken =
+		FGuid::NewGuid().ToString(EGuidFormats::Digits) +
+		FGuid::NewGuid().ToString(EGuidFormats::Digits);
+
+	if (!FFileHelper::SaveStringToFile(NewToken, *TokenPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+	{
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Failed to write new auth token to %s"), *TokenPath);
+		return FString();
+	}
+
+	UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Generated new auth token at %s"), *TokenPath);
+	return NewToken;
 }

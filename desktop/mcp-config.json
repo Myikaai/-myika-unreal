@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "myika-bridge": {
+      "command": "node",
+      "args": ["mcp-bridge-server.mjs"],
+      "cwd": "."
+    }
+  }
+}

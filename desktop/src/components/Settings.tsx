@@ -1,8 +1,35 @@
+import { useEffect, useState } from "react";
+import { getSettings, saveSettings, type AppSettings } from "../lib/ipc";
+
 interface SettingsProps {
   onClose: () => void;
 }
 
 export default function Settings({ onClose }: SettingsProps) {
+  const [settings, setSettings] = useState<AppSettings>({
+    provider: "claude-code",
+    model: "sonnet",
+    bridge_port: 17645,
+    trust_mode: false,
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getSettings().then(setSettings).catch(console.error);
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await saveSettings(settings);
+      onClose();
+    } catch (e) {
+      console.error("Failed to save settings:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg w-[480px] p-6">
@@ -13,19 +40,26 @@ export default function Settings({ onClose }: SettingsProps) {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm text-muted mb-1">Anthropic API Key</label>
-            <input
-              type="password"
-              placeholder="sk-ant-..."
+            <label className="block text-sm text-muted mb-1">AI Provider</label>
+            <select
+              value={settings.provider}
+              onChange={(e) => setSettings({ ...settings, provider: e.target.value })}
               className="w-full bg-[var(--bg-surface)] text-primary text-sm rounded px-3 py-2 border border-[var(--border)] focus:border-[var(--accent)] focus:outline-none"
-            />
+            >
+              <option value="claude-code">Claude Code (uses your subscription)</option>
+            </select>
+            <p className="text-xs text-muted mt-1">Uses your existing Claude Code subscription. No API key needed.</p>
           </div>
 
           <div>
             <label className="block text-sm text-muted mb-1">Model</label>
-            <select className="w-full bg-[var(--bg-surface)] text-primary text-sm rounded px-3 py-2 border border-[var(--border)] focus:border-[var(--accent)] focus:outline-none">
-              <option value="claude-sonnet-4-5-20250514">Claude Sonnet 4.5</option>
-              <option value="claude-opus-4-5-20250918">Claude Opus 4.5</option>
+            <select
+              value={settings.model}
+              onChange={(e) => setSettings({ ...settings, model: e.target.value })}
+              className="w-full bg-[var(--bg-surface)] text-primary text-sm rounded px-3 py-2 border border-[var(--border)] focus:border-[var(--accent)] focus:outline-none"
+            >
+              <option value="sonnet">Claude Sonnet (fast)</option>
+              <option value="opus">Claude Opus (deep thinking)</option>
             </select>
           </div>
 
@@ -33,20 +67,26 @@ export default function Settings({ onClose }: SettingsProps) {
             <label className="block text-sm text-muted mb-1">Bridge Port</label>
             <input
               type="number"
-              defaultValue={17645}
+              value={settings.bridge_port}
+              onChange={(e) => setSettings({ ...settings, bridge_port: parseInt(e.target.value) || 17645 })}
               className="w-full bg-[var(--bg-surface)] text-primary text-sm rounded px-3 py-2 border border-[var(--border)] focus:border-[var(--accent)] focus:outline-none"
             />
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="text-sm text-muted">Trust Mode (skip run_python approval)</label>
-            <input type="checkbox" className="accent-[var(--accent)]" />
-          </div>
+          {/*
+            Trust Mode UI removed: bypassing run_python approval is unsafe
+            given prompt-injection risks. The persisted field is forced to
+            false on load (see db.rs) so old database values cannot enable it.
+          */}
         </div>
 
         <div className="mt-6 flex justify-end">
-          <button onClick={onClose} className="px-4 py-2 bg-[var(--accent)] text-black text-sm font-medium rounded hover:opacity-90">
-            Done
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 bg-[var(--accent)] text-black text-sm font-medium rounded hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Done"}
           </button>
         </div>
       </div>

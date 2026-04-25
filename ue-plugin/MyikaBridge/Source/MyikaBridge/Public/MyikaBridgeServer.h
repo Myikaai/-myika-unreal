@@ -78,6 +78,13 @@ private:
 	friend class FNetworkRunnable;
 	FNetworkRunnable* Runnable = nullptr;
 
+	// --- Auth ---
+	/** Shared-secret token loaded from %LOCALAPPDATA%\Myika\bridge-token at Start(). */
+	FString AuthToken;
+
+	/** Read the token file, or generate + write a new one if missing. Returns empty on failure. */
+	FString LoadOrCreateAuthToken();
+
 	// --- WebSocket handshake ---
 	bool PerformWebSocketHandshake(FSocket* Socket);
 	FString ComputeWebSocketAccept(const FString& Key);

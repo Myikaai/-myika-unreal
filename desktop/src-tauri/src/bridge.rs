@@ -2,6 +2,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -62,7 +63,7 @@ pub struct BridgeState {
 
 #[tauri::command]
 pub async fn get_bridge_status(
-    state: tauri::State<'_, BridgeState>,
+    state: tauri::State<'_, Arc<BridgeState>>,
 ) -> Result<BridgeStatus, String> {
     let status = state.status.lock().await.clone();
     Ok(status)
@@ -130,11 +131,42 @@ pub fn spawn_bridge_loop(app: &AppHandle) -> BridgeState {
     state
 }
 
+/// Locate the bridge token file. The UE plugin owns this file — the desktop
+/// app only ever reads it.
+fn bridge_token_path() -> Result<PathBuf, String> {
+    let local_app_data = std::env::var("LOCALAPPDATA")
+        .map_err(|_| "LOCALAPPDATA env var not set".to_string())?;
+    Ok(PathBuf::from(local_app_data).join("Myika").join("bridge-token"))
+}
+
+/// Read the shared-secret token written by the UE plugin. Returns a friendly
+/// error if the file is missing — the bridge loop's retry will keep trying
+/// until the UE plugin starts and creates it.
+fn read_bridge_token() -> Result<String, String> {
+    let path = bridge_token_path()?;
+    match std::fs::read_to_string(&path) {
+        Ok(s) => {
+            let trimmed = s.trim().to_string();
+            if trimmed.is_empty() {
+                Err(format!("token file is empty: {}", path.display()))
+            } else {
+                Ok(trimmed)
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err("token file not found — is the UE plugin running?".to_string())
+        }
+        Err(e) => Err(format!("failed to read token file {}: {}", path.display(), e)),
+    }
+}
+
 /// Perform a manual WebSocket handshake over a TCP stream.
 /// We bypass tungstenite's built-in handshake because v0.26 has a
 /// Sec-WebSocket-Accept validation issue with our UE server despite
 /// the server computing correct Accept values.
 async fn manual_ws_handshake(stream: &mut tokio::net::TcpStream) -> Result<(), String> {
+    let token = read_bridge_token()?;
+
     let key_bytes: [u8; 16] = rand::random();
     let key = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, key_bytes);
 
@@ -145,8 +177,9 @@ async fn manual_ws_handshake(stream: &mut tokio::net::TcpStream) -> Result<(), S
          Upgrade: websocket\r\n\
          Sec-WebSocket-Version: 13\r\n\
          Sec-WebSocket-Key: {}\r\n\
+         X-Myika-Token: {}\r\n\
          \r\n",
-        BRIDGE_HOST, BRIDGE_PORT, key
+        BRIDGE_HOST, BRIDGE_PORT, key, token
     );
 
     stream
@@ -175,11 +208,15 @@ async fn manual_ws_handshake(stream: &mut tokio::net::TcpStream) -> Result<(), S
     }
 
     let response_str = String::from_utf8_lossy(&response);
+    let status_line = response_str.lines().next().unwrap_or("");
+    if status_line.starts_with("HTTP/1.1 401") {
+        return Err(
+            "auth token mismatch — delete %LOCALAPPDATA%\\Myika\\bridge-token and restart UE"
+                .to_string(),
+        );
+    }
     if !response_str.starts_with("HTTP/1.1 101") {
-        return Err(format!(
-            "Expected 101, got: {}",
-            response_str.lines().next().unwrap_or("")
-        ));
+        return Err(format!("Expected 101, got: {}", status_line));
     }
 
     Ok(())
