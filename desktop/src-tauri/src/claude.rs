@@ -39,18 +39,29 @@ The MyikaBridge plugin ships reusable C++ components you MUST use for interactiv
 ### UMyikaInteractionComponent
 Detects player overlap + responds to an Enhanced Input action. Optionally handles door-style rotation animation entirely through properties.
 
-Add to any Actor Blueprint via run_python:
+IMPORTANT: bp.simple_construction_script does NOT work in UE5.7 Python. Use SubobjectDataSubsystem instead.
+
+Adding components to a Blueprint via run_python (this is the ONLY working pattern):
   import unreal
-  # After creating the BP and getting its SCS (SimpleConstructionScript):
-  interaction_node = scs.create_node(unreal.MyikaInteractionComponent, "InteractionComponent")
-  interaction_comp = interaction_node.component_template
-  interaction_comp.set_editor_property("InteractionExtent", unreal.Vector(150, 150, 150))
-  interaction_comp.set_editor_property("bAutoRotate", True)
-  interaction_comp.set_editor_property("RotationAngle", 90.0)
-  interaction_comp.set_editor_property("RotationDuration", 0.5)
-  # Set the input action:
+  bp = unreal.EditorAssetLibrary.load_asset("/Game/Blueprints/BP_Door")
+  subsystem = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+  handles = subsystem.k2_gather_subobject_data_for_blueprint(bp)
+  root_handle = handles[0]
+  # Add a component:
+  params = unreal.AddNewSubobjectParams()
+  params.set_editor_property("parent_handle", root_handle)
+  params.set_editor_property("new_class", unreal.MyikaInteractionComponent)
+  params.set_editor_property("blueprint_context", bp)
+  new_handle, fail_reason = subsystem.add_new_subobject(params)
+  # Get the component object to configure it:
+  data = subsystem.k2_find_subobject_data_from_handle(new_handle)
+  comp = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(data, False)
+  comp.set_editor_property("InteractionExtent", unreal.Vector(150, 150, 150))
+  comp.set_editor_property("bAutoRotate", True)
+  comp.set_editor_property("RotationAngle", 90.0)
+  comp.set_editor_property("RotationDuration", 0.5)
   ia = unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IA_Interact")
-  interaction_comp.set_editor_property("InputAction", ia)
+  comp.set_editor_property("InputAction", ia)
 
 Properties:
 - InteractionExtent (FVector): Half-extent of overlap detection box. Default (150, 150, 150).
@@ -99,16 +110,58 @@ This asset creation step MUST be part of your plan whenever you build something 
 IMPORTANT: When creating a BP that uses UMyikaInteractionComponent, also ensure the IMC is added to the player's Enhanced Input subsystem at runtime. Include this as a final verification note to the user: "Press E near the door to interact. If E doesn't work, the InputMappingContext may need to be added to your project's default pawn setup."
 
 ## Example: Door Scenario
-When the user asks to "build a door" or "create an interactable door", follow this exact pattern:
-1. Ensure input assets exist (create via run_python if missing — see above)
-2. Create BP_Door (Actor base) via BlueprintFactory + AssetTools
-3. Add StaticMeshComponent as root — use /Engine/BasicShapes/Cube, scale to door proportions (1.0, 0.1, 2.0)
-4. Add UMyikaInteractionComponent — set bAutoRotate=true, RotationAngle=90, RotationDuration=0.5, InteractionExtent=(150,150,150), InputAction=/MyikaBridge/Input/IA_Interact
-5. Compile the BP
-6. Verify with read_blueprint_summary and get_compile_errors
-Do NOT use Timelines, event graph wiring, or manual overlap event binding. UMyikaInteractionComponent handles all of that internally."#;
+When the user asks to "build a door" or "create an interactable door", use exactly 3 run_python calls:
 
-const MAX_TURNS: u32 = 25;
+Call 1 — Ensure input assets (skip if they exist):
+  [use the input asset creation code from above]
+
+Call 2 — Create BP and add components:
+  import unreal
+  asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+  # Delete existing BP_Door if present to avoid overwrite dialogs
+  if unreal.EditorAssetLibrary.does_asset_exist("/Game/Blueprints/BP_Door"):
+      unreal.EditorAssetLibrary.delete_asset("/Game/Blueprints/BP_Door")
+  # Create BP_Door
+  bp_factory = unreal.BlueprintFactory()
+  bp_factory.set_editor_property("ParentClass", unreal.Actor)
+  bp = asset_tools.create_asset("BP_Door", "/Game/Blueprints", unreal.Blueprint, bp_factory)
+  subsystem = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+  handles = subsystem.k2_gather_subobject_data_for_blueprint(bp)
+  root_handle = handles[0]
+  # Add StaticMeshComponent
+  params = unreal.AddNewSubobjectParams()
+  params.set_editor_property("parent_handle", root_handle)
+  params.set_editor_property("new_class", unreal.StaticMeshComponent)
+  params.set_editor_property("blueprint_context", bp)
+  mesh_handle, _ = subsystem.add_new_subobject(params)
+  mesh_data = subsystem.k2_find_subobject_data_from_handle(mesh_handle)
+  mesh = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(mesh_data, False)
+  mesh.set_editor_property("StaticMesh", unreal.EditorAssetLibrary.load_asset("/Engine/BasicShapes/Cube"))
+  mesh.set_editor_property("RelativeScale3D", unreal.Vector(1.0, 0.1, 2.0))
+  # Add MyikaInteractionComponent
+  params2 = unreal.AddNewSubobjectParams()
+  params2.set_editor_property("parent_handle", root_handle)
+  params2.set_editor_property("new_class", unreal.MyikaInteractionComponent)
+  params2.set_editor_property("blueprint_context", bp)
+  ic_handle, _ = subsystem.add_new_subobject(params2)
+  ic_data = subsystem.k2_find_subobject_data_from_handle(ic_handle)
+  ic = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(ic_data, False)
+  ic.set_editor_property("InteractionExtent", unreal.Vector(150, 150, 150))
+  ic.set_editor_property("bAutoRotate", True)
+  ic.set_editor_property("RotationAngle", 90.0)
+  ic.set_editor_property("RotationDuration", 0.5)
+  ic.set_editor_property("InputAction", unreal.EditorAssetLibrary.load_asset("/MyikaBridge/Input/IA_Interact"))
+  # Compile and save
+  unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+  unreal.EditorAssetLibrary.save_asset("/Game/Blueprints/BP_Door")
+  print("BP_Door created with DoorMesh + InteractionComponent")
+
+Call 3 — Verify:
+  Use read_blueprint_summary and get_compile_errors to confirm success.
+
+Do NOT use Timelines, event graph wiring, SCS/SimpleConstructionScript, or manual overlap event binding. UMyikaInteractionComponent handles all of that internally."#;
+
+const MAX_TURNS: u32 = 40;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
