@@ -263,6 +263,16 @@ FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const F
 		return TEXT("{\"ok\":false,\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Python subsystem not available\"}}");
 	}
 
+	// Use a temp file to pass the result, avoiding escaping issues with
+	// EvaluateStatement when results contain newlines, quotes, backslashes
+	// (e.g. file content from read_file).
+	FString TempDir = FPaths::ProjectSavedDir() / TEXT("Myika");
+	IFileManager::Get().MakeDirectory(*TempDir, true);
+	FString TempPath = TempDir / TEXT("_dispatch_result.json");
+
+	// Convert to forward slashes for Python on Windows
+	FString TempPathPy = TempPath.Replace(TEXT("\\"), TEXT("/"));
+
 	// Escape the payload for embedding in a Python string literal
 	FString Escaped = PayloadJson;
 	Escaped = Escaped.Replace(TEXT("\\"), TEXT("\\\\"));
@@ -270,17 +280,36 @@ FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const F
 	Escaped = Escaped.Replace(TEXT("\n"), TEXT("\\n"));
 	Escaped = Escaped.Replace(TEXT("\r"), TEXT(""));
 
-	FString PythonExpr = FString::Printf(
-		TEXT("myika.dispatcher.dispatch_json('%s')"),
+	// Write result to temp file instead of returning through EvaluateStatement
+	FString PythonCode = FString::Printf(
+		TEXT("open('%s', 'w', encoding='utf-8').write(myika.dispatcher.dispatch_json('%s'))"),
+		*TempPathPy,
 		*Escaped
 	);
 
 	FPythonCommandEx PythonCmd;
-	PythonCmd.Command = PythonExpr;
+	PythonCmd.Command = PythonCode;
 	PythonCmd.ExecutionMode = EPythonCommandExecutionMode::EvaluateStatement;
 	PythonCmd.FileExecutionScope = EPythonFileExecutionScope::Public;
 
 	bool bSuccess = PythonPlugin->ExecPythonCommandEx(PythonCmd);
+
+	// Log Python output to UE log
+	for (const FPythonLogOutputEntry& Entry : PythonCmd.LogOutput)
+	{
+		switch (Entry.Type)
+		{
+		case EPythonLogOutputType::Info:
+			UE_LOG(LogMyikaBridge, Log, TEXT("[Myika/Python] %s"), *Entry.Output);
+			break;
+		case EPythonLogOutputType::Warning:
+			UE_LOG(LogMyikaBridge, Warning, TEXT("[Myika/Python] %s"), *Entry.Output);
+			break;
+		case EPythonLogOutputType::Error:
+			UE_LOG(LogMyikaBridge, Error, TEXT("[Myika/Python] %s"), *Entry.Output);
+			break;
+		}
+	}
 
 	if (!bSuccess)
 	{
@@ -302,43 +331,25 @@ FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const F
 		return FString::Printf(TEXT("{\"ok\":false,\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"%s\"}}"), *ErrorMsg);
 	}
 
-	FString Result = PythonCmd.CommandResult;
-
-	// Log Python output to UE log
-	for (const FPythonLogOutputEntry& Entry : PythonCmd.LogOutput)
+	// Read result from temp file
+	FString Result;
+	if (!FFileHelper::LoadFileToString(Result, *TempPath))
 	{
-		switch (Entry.Type)
-		{
-		case EPythonLogOutputType::Info:
-			UE_LOG(LogMyikaBridge, Log, TEXT("[Myika/Python] %s"), *Entry.Output);
-			break;
-		case EPythonLogOutputType::Warning:
-			UE_LOG(LogMyikaBridge, Warning, TEXT("[Myika/Python] %s"), *Entry.Output);
-			break;
-		case EPythonLogOutputType::Error:
-			UE_LOG(LogMyikaBridge, Error, TEXT("[Myika/Python] %s"), *Entry.Output);
-			break;
-		}
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Failed to read dispatch result from %s"), *TempPath);
+		return TEXT("{\"ok\":false,\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Failed to read dispatch result file\"}}");
 	}
 
-	// EvaluateStatement may return string with surrounding quotes — strip them
-	if (Result.Len() >= 2 && Result.StartsWith(TEXT("'")) && Result.EndsWith(TEXT("'")))
-	{
-		Result = Result.Mid(1, Result.Len() - 2);
-		Result = Result.Replace(TEXT("\\'"), TEXT("'"));
-	}
-	else if (Result.Len() >= 2 && Result.StartsWith(TEXT("\"")) && Result.EndsWith(TEXT("\"")))
-	{
-		Result = Result.Mid(1, Result.Len() - 2);
-		Result = Result.Replace(TEXT("\\\""), TEXT("\""));
-	}
+	// Clean up temp file
+	IFileManager::Get().Delete(*TempPath);
+
+	UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] Tool '%s' result length: %d bytes"), *ToolName, Result.Len());
 
 	// Validate JSON before returning
 	TSharedPtr<FJsonObject> TestParse;
 	TSharedRef<TJsonReader<>> TestReader = TJsonReaderFactory<>::Create(Result);
 	if (!FJsonSerializer::Deserialize(TestReader, TestParse) || !TestParse.IsValid())
 	{
-		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Python returned invalid JSON: %s"), *Result);
+		UE_LOG(LogMyikaBridge, Error, TEXT("[Myika] Python returned invalid JSON (first 500 chars): %.500s"), *Result);
 		return TEXT("{\"ok\":false,\"error\":{\"code\":\"INTERNAL_ERROR\",\"message\":\"Python returned invalid JSON\"}}");
 	}
 
