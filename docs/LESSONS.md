@@ -69,3 +69,9 @@ Macro instances (FlipFlop, ForEachLoop, etc.) need `GraphGuid` references pointi
 ## Day 10: Timeline Nodes Paste Structurally But Data Doesn't Carry
 
 `K2Node_Timeline` imports as a node but `UTimelineTemplate` curve data (float tracks, keyframes) does not transfer via T3D. No float track output pins appear. Needs a separate `add_timeline_track` C++ handler that creates tracks and keyframes programmatically after the timeline node is pasted.
+
+## Day 11: Session Handoff Requires Explicit Context Loading
+
+Plans written into docs at the end of one session don't automatically reach the next session. Day 11 was originally scoped (in Day 10 closeout) as `set_pin_default` + `add_timeline_track`, but the next session received a different spec (run journal, bridge reconnect, error toasts) and executed against that without checking prior context. Result: scope swap without deliberate re-prioritization.
+
+**Fix:** Every new agent session must start by reading the most recent Day-N closeout from LESSONS.md, the V1 priorities from PRIMITIVES_BACKLOG.md, and any open spec items before accepting today's work spec. The user-side fix: include those reads as the first instructions in any new session kickoff.
