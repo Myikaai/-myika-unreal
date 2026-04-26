@@ -1,4 +1,4 @@
-use crate::db::{AppSettings, Db};
+use crate::db::{AppSettings, ClaudeCodeRouting, Db};
 use crate::run_journal::RunJournal;
 use serde::{Deserialize, Serialize};
 use std::io::BufRead;
@@ -303,6 +303,31 @@ pub fn send_message_blocking(
     });
 }
 
+/// Inject Claude Code CLI routing env vars onto a Command before spawn.
+///
+/// Anthropic — no extra env (CLI uses its default endpoint).
+/// Bedrock   — sets CLAUDE_CODE_USE_BEDROCK=1 + AWS_REGION. Trusts ambient AWS credentials
+///             (the user's own SSO / IMDS / `~/.aws/credentials`). We never hold AWS secrets.
+/// Vertex    — sets CLAUDE_CODE_USE_VERTEX=1 + ANTHROPIC_VERTEX_PROJECT_ID + CLOUD_ML_REGION.
+///             Trusts ambient GCP credentials (`gcloud auth application-default login`).
+///
+/// We never `env_clear()` — the spawned CLI inherits the user's PATH, terminal env,
+/// HOME, etc. Routing env vars layer on top of whatever was already set.
+fn apply_routing_env(cmd: &mut Command, routing: &ClaudeCodeRouting) {
+    match routing {
+        ClaudeCodeRouting::Anthropic => {}
+        ClaudeCodeRouting::Bedrock { aws_region } => {
+            cmd.env("CLAUDE_CODE_USE_BEDROCK", "1");
+            cmd.env("AWS_REGION", aws_region);
+        }
+        ClaudeCodeRouting::Vertex { gcp_project, gcp_region } => {
+            cmd.env("CLAUDE_CODE_USE_VERTEX", "1");
+            cmd.env("ANTHROPIC_VERTEX_PROJECT_ID", gcp_project);
+            cmd.env("CLOUD_ML_REGION", gcp_region);
+        }
+    }
+}
+
 /// Run the claude CLI process with blocking I/O. Returns the full response text.
 fn run_claude(
     app: &AppHandle,
@@ -336,6 +361,8 @@ fn run_claude(
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
 
+    apply_routing_env(&mut cmd, &settings.claude_code_routing);
+
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -343,7 +370,11 @@ fn run_claude(
         cmd.current_dir(parent);
     }
 
-    log::info!("Spawning claude CLI with model={}", model_flag);
+    log::info!(
+        "Spawning claude CLI with model={} routing={}",
+        model_flag,
+        settings.claude_code_routing.status_label()
+    );
 
     let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn claude: {}", e))?;
     log::info!("Claude process spawned, pid={:?}", child.id());

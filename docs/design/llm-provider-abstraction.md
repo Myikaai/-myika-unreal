@@ -1,6 +1,6 @@
 # Design: LLM provider abstraction
 
-**Status:** draft, awaiting review
+**Status:** v1 step 2 (env-var injection) shipped; settings UI + remaining v1 steps pending
 **Author:** 2026-04-25
 
 ## Why this design exists
@@ -107,17 +107,18 @@ Auth tokens are **never** stored in `AppSettings` directly — only a key into t
 
 Scope-cut so v1 is small and reviewable:
 
-1. Add `ClaudeCodeRouting` enum + `claude_code` field to `AppSettings`. Default = `Anthropic` (current behavior).
-2. In `claude.rs::run_claude`, before spawning the CLI, set env vars based on routing:
+1. **[shipped]** Add `ClaudeCodeRouting` enum + `claude_code_routing` field to `AppSettings`. Default = `Anthropic` (current behavior). Variants: `Anthropic`, `Bedrock { aws_region }`, `Vertex { gcp_project, gcp_region }`. JSON-encoded into the existing settings table (no schema migration). Malformed routing config falls through to `Anthropic` rather than partially applying.
+2. **[shipped]** In `claude.rs::run_claude`, before spawning the CLI, set env vars based on routing via `apply_routing_env`:
    - `Anthropic` → no extra env (current behaviour).
-   - `Bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION=<value>`. Trust ambient AWS credentials (the user's own SSO / IMDS / `~/.aws/credentials`).
-   - `Vertex` → `CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_PROJECT_ID=<value>`, `CLOUD_ML_REGION=<value>`. Trust ambient GCP credentials (`gcloud auth application-default login`).
-   - `Proxy` → `ANTHROPIC_BASE_URL=<value>`, `ANTHROPIC_AUTH_TOKEN=<resolved-from-secret-store>`.
-3. Settings UI: dropdown picking the routing mode + region/project/url fields conditional on the choice.
-4. Surface routing mode prominently in the UI status line (e.g. `Claude • Bedrock us-east-1`) so users can't accidentally exfiltrate to Anthropic when they meant to stay in Bedrock.
-5. Document each routing mode's outbound endpoints in SECURITY.md so security review has one place to check.
+   - `Bedrock` → `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION=<value>`. Trusts ambient AWS credentials (the user's own SSO / IMDS / `~/.aws/credentials`).
+   - `Vertex` → `CLAUDE_CODE_USE_VERTEX=1`, `ANTHROPIC_VERTEX_PROJECT_ID=<value>`, `CLOUD_ML_REGION=<value>`. Trusts ambient GCP credentials (`gcloud auth application-default login`).
+   - `Proxy` → **deferred** — needs the OS-secret-store work from the SECURITY.md roadmap before we can persist the auth token without leaking it into the SQLite DB.
+3. **[pending]** Settings UI: dropdown picking the routing mode + region/project fields conditional on the choice. Until this lands, studios using non-default routing must `UPDATE settings SET value = '{"kind":"bedrock","aws_region":"us-east-1"}' WHERE key = 'claude_code_routing'` directly in `myika.db`.
+4. **[pending]** Surface routing mode prominently in the UI status line (e.g. `Claude • Bedrock us-east-1`) via `ClaudeCodeRouting::status_label()` — already implemented on the model; needs a frontend hookup. Users must not be able to accidentally exfiltrate to Anthropic when they meant to stay in Bedrock.
+5. **[pending]** Document each routing mode's outbound endpoints in SECURITY.md so security review has one place to check.
 
 **v1 explicitly does NOT include:**
+- The `Proxy` routing variant. Blocked on secret-store roadmap item.
 - A local-agent shell. Defer to v2.
 - A `CustomCmd` shell. Defer to v3 (it's the escape hatch — implement when someone asks).
 - Streaming-event-format adapters. The Claude CLI's stream-json format is the one we read; v2 shells will have to emit the same shape.

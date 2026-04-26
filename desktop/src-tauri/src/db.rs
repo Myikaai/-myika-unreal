@@ -3,12 +3,46 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+/// Where the spawned Claude Code CLI sends LLM traffic. See
+/// `docs/design/llm-provider-abstraction.md` for the full design.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ClaudeCodeRouting {
+    /// Default — talks to api.anthropic.com using whatever auth the CLI has.
+    Anthropic,
+    /// Routes through AWS Bedrock in the customer's account. Trusts ambient AWS credentials.
+    Bedrock { aws_region: String },
+    /// Routes through GCP Vertex in the customer's project. Trusts ambient GCP credentials.
+    Vertex { gcp_project: String, gcp_region: String },
+}
+
+impl Default for ClaudeCodeRouting {
+    fn default() -> Self {
+        ClaudeCodeRouting::Anthropic
+    }
+}
+
+impl ClaudeCodeRouting {
+    /// Short label for the status line — never includes credentials.
+    pub fn status_label(&self) -> String {
+        match self {
+            ClaudeCodeRouting::Anthropic => "Anthropic".to_string(),
+            ClaudeCodeRouting::Bedrock { aws_region } => format!("Bedrock {aws_region}"),
+            ClaudeCodeRouting::Vertex { gcp_project, gcp_region } => {
+                format!("Vertex {gcp_project}/{gcp_region}")
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSettings {
     pub provider: String,   // "claude-code"
     pub model: String,      // "sonnet", "opus"
     pub bridge_port: u16,
     pub trust_mode: bool,
+    #[serde(default)]
+    pub claude_code_routing: ClaudeCodeRouting,
 }
 
 impl Default for AppSettings {
@@ -18,6 +52,7 @@ impl Default for AppSettings {
             model: "sonnet".to_string(),
             bridge_port: 17645,
             trust_mode: false,
+            claude_code_routing: ClaudeCodeRouting::default(),
         }
     }
 }
@@ -71,6 +106,17 @@ impl Db {
             [], |row| row.get::<_, String>(0),
         ) { if let Ok(p) = v.parse() { settings.bridge_port = p; } }
 
+        if let Ok(v) = conn.query_row(
+            "SELECT value FROM settings WHERE key = 'claude_code_routing'",
+            [], |row| row.get::<_, String>(0),
+        ) {
+            if let Ok(routing) = serde_json::from_str::<ClaudeCodeRouting>(&v) {
+                settings.claude_code_routing = routing;
+            }
+            // Fall through to default on parse failure — never partially apply
+            // a malformed routing config.
+        }
+
         // trust_mode is intentionally ignored on load. The UI toggle has been
         // removed and the field is force-disabled here so existing DB rows from
         // a previous version cannot re-enable approval-skipping for run_python.
@@ -81,11 +127,15 @@ impl Db {
 
     pub fn save_settings(&self, settings: &AppSettings) -> Result<(), String> {
         let conn = self.conn.lock().unwrap();
-        let pairs = [
+        let routing_json = serde_json::to_string(&settings.claude_code_routing)
+            .map_err(|e| format!("Failed to serialize claude_code_routing: {e}"))?;
+        let bridge_port_str = settings.bridge_port.to_string();
+        let pairs: [(&str, &str); 5] = [
             ("provider", settings.provider.as_str()),
             ("model", settings.model.as_str()),
-            ("bridge_port", &settings.bridge_port.to_string()),
+            ("bridge_port", &bridge_port_str),
             ("trust_mode", if settings.trust_mode { "true" } else { "false" }),
+            ("claude_code_routing", &routing_json),
         ];
         for (key, value) in pairs {
             conn.execute(
