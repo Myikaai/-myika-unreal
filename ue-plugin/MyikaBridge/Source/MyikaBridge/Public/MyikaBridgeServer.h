@@ -164,4 +164,24 @@ private:
 	 * Timeline nodes paste structurally but curve data doesn't carry via T3D.
 	 */
 	FString HandleAddTimelineTrack(const FString& ArgsJson);
+
+	/**
+	 * C++ handler for list_node_pins tool.
+	 * Returns each node's pins (name, direction, category, default) so the
+	 * agent can introspect graph state without needing a working Python pin
+	 * enumeration (UE 5.7 doesn't expose one). Optionally scoped to a single
+	 * node_name. Used to recover after connect_pins / set_pin_default fail.
+	 */
+	FString HandleListNodePins(const FString& ArgsJson);
+
+	/**
+	 * C++ handler for create_timeline tool.
+	 * Creates a UTimelineTemplate via FBlueprintEditorUtils::AddNewTimeline AND
+	 * a properly-bound K2Node_Timeline in the target graph. This is the only
+	 * reliable way to create a working timeline - paste_bp_nodes does NOT
+	 * invoke the editor's AddNewTimeline path, so a pasted K2Node_Timeline
+	 * ends up with a phantom default-named template that subsequent
+	 * add_timeline_track calls cannot bind tracks-to-pins through.
+	 */
+	FString HandleCreateTimeline(const FString& ArgsJson);
 };

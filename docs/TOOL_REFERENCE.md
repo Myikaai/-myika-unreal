@@ -156,6 +156,8 @@ Override a pin's default value after paste. Required because `ReconstructNode` (
 
 Add a float or vector track with keyframes to a `UTimelineTemplate` after the timeline node has been pasted. Required because timeline T3D pastes structurally but curve data does not transfer.
 
+> **Caveat:** `paste_bp_nodes` creates a `K2Node_Timeline` but does **not** create the underlying `UTimelineTemplate` (the editor's `AddNewTimeline` path is not invoked). If you paste a timeline and then call `add_timeline_track`, you will get a structured error listing the available timeline templates plus a fix recipe. The fix is to call `FBlueprintEditorUtils::AddNewTimeline(BP, FName("YourName"))` via `run_python` before `add_timeline_track`, or to construct the timeline node entirely via `run_python`.
+
 ```json
 // Request
 {
@@ -171,6 +173,149 @@ Add a float or vector track with keyframes to a `UTimelineTemplate` after the ti
 
 // Response
 {"success": true, "track_added": "DoorRotation", "output_pin_added": true}
+```
+
+---
+
+### `create_timeline`
+
+Create a `K2Node_Timeline` AND its backing `UTimelineTemplate` properly bound. **The only reliable way to make a timeline.** `paste_bp_nodes` for a `K2Node_Timeline` creates a phantom default-named template that the K2Node never re-binds to, so subsequent `add_timeline_track` calls cannot generate output pins. This tool wraps `FBlueprintEditorUtils::AddNewTimeline` + `NewObject<UK2Node_Timeline>` + the proper binding sequence.
+
+```json
+// Request
+{
+  "asset_path": "/Game/Blueprints/BP_PulsingLight",
+  "graph_name": "EventGraph",
+  "timeline_name": "PulseTimeline",
+  "loop": true,
+  "auto_play": false,
+  "node_pos_x": -200,
+  "node_pos_y": 0
+}
+
+// Response
+{"success": true, "node_name": "K2Node_Timeline_0", "timeline_name": "PulseTimeline"}
+```
+
+The returned `node_name` is what to pass to subsequent `add_timeline_track` and `connect_pins` calls. `timeline_name` may have a numeric suffix appended if the requested name collided with an existing timeline variable on the BP.
+
+---
+
+## Material-graph tools
+
+These build `UMaterial` shaders end-to-end via `unreal.MaterialEditingLibrary`. They run as Python tools (no C++ rebuild needed for new node types).
+
+**When to use materials:** pure visual effects (blinking neon, pulsing emissive, animated UVs, fresnel rim, panning textures). For gameplay-driven behaviour, use a Blueprint with a Timeline instead.
+
+### `create_material`
+
+Create a new `UMaterial` asset.
+
+```json
+// Request
+{"asset_path": "/Game/Materials/M_BlinkingNeon", "overwrite": true}
+
+// Response
+{"success": true, "asset_path": "/Game/Materials/M_BlinkingNeon", "created": true}
+```
+
+### `add_material_expression`
+
+Add a node (Time, Multiply, Frac, Round, ScalarParameter, VectorParameter, Constant, Lerp, TextureSample, etc.) to a material. Returns the auto-named node so subsequent `connect_material_*` calls can reference it.
+
+```json
+// Request
+{
+  "asset_path": "/Game/Materials/M_BlinkingNeon",
+  "expression_type": "ScalarParameter",
+  "parameter_name": "BlinkSpeed",
+  "default_scalar": 5.0,
+  "node_pos_x": -800,
+  "node_pos_y": 150
+}
+
+// Response
+{
+  "success": true,
+  "expression_name": "MaterialExpressionScalarParameter_0",
+  "expression_class": "MaterialExpressionScalarParameter",
+  "applied": {"parameter_name": "BlinkSpeed", "default_scalar": 5.0}
+}
+```
+
+`expression_type` accepts a short name (`Time`, `Multiply`, `Frac`, `Round`, `ScalarParameter`, `VectorParameter`, `Constant`, `Lerp`, `TextureSample`, ...) or a full UE class (`MaterialExpressionMultiply`).
+
+For `ScalarParameter` / `VectorParameter`, set `parameter_name` and `default_scalar` / `default_vector` to expose runtime parameters. `default_vector` is `{r, g, b, a}`.
+
+### `connect_material_expressions`
+
+Wire one expression's output to another's input. `from_pin` empty string = default output (most expressions have only one).
+
+```json
+// Request
+{
+  "asset_path": "/Game/Materials/M_BlinkingNeon",
+  "from_node": "MaterialExpressionTime_0",
+  "from_pin": "",
+  "to_node": "MaterialExpressionMultiply_0",
+  "to_pin": "A"
+}
+
+// Response
+{"success": true, "from": "MaterialExpressionTime_0.<default>", "to": "MaterialExpressionMultiply_0.A"}
+```
+
+Common `to_pin` names: `A`, `B` (Multiply/Add/Subtract/Divide), `Alpha` (Lerp), unnamed default (Frac/Round/Sin/Cos take their input on the default pin).
+
+### `connect_material_property`
+
+Wire an expression's output to a final material property channel. Call this last to drive the actual outputs.
+
+```json
+// Request
+{
+  "asset_path": "/Game/Materials/M_BlinkingNeon",
+  "from_node": "MaterialExpressionMultiply_2",
+  "property": "EmissiveColor"
+}
+
+// Response
+{"success": true, "from": "MaterialExpressionMultiply_2.<default>", "property": "EmissiveColor"}
+```
+
+Allowed `property` values: `BaseColor`, `EmissiveColor`, `Metallic`, `Roughness`, `Specular`, `Normal`, `Opacity`, `OpacityMask`, `WorldPositionOffset`, `AmbientOcclusion`, `Refraction`, `PixelDepthOffset`, `SubsurfaceColor`.
+
+---
+
+### `list_node_pins`
+
+Return each node's pins (name, direction, category, hidden flag, default value) for a Blueprint graph. Use after `connect_pins` or `set_pin_default` returns "pin not found" if you need more detail than the error message's pin-name list provides. Optionally scoped to a single `node_name`.
+
+The agent should reach for this tool *only* when needed, since `connect_pins` and `set_pin_default` already include available pin names in their error messages. UE 5.7's Python API does not expose K2Node pin enumeration, so this is the supported introspection path.
+
+```json
+// Request
+{
+  "asset_path": "/Game/Blueprints/BP_PulsingLight",
+  "graph_name": "EventGraph",
+  "node_name": "K2Node_Timeline_PulseTimeline"
+}
+
+// Response
+{
+  "success": true,
+  "nodes": [
+    {
+      "name": "K2Node_Timeline_PulseTimeline",
+      "class": "K2Node_Timeline",
+      "pins": [
+        {"name": "Play", "direction": "input", "category": "exec", "is_hidden": false, "has_default_value": false},
+        {"name": "Update", "direction": "output", "category": "exec", "is_hidden": false, "has_default_value": false},
+        {"name": "PulseAlpha", "direction": "output", "category": "real", "sub_category": "float", "is_hidden": false, "has_default_value": false}
+      ]
+    }
+  ]
+}
 ```
 
 ---
@@ -202,12 +347,22 @@ Intercepted by the tool proxy (`desktop/src-tauri/src/tool_proxy.rs`); never rea
 
 Blueprint graph construction follows a fixed sequence because of how UE 5.7 handles paste:
 
-1. **`paste_bp_nodes`** — creates nodes (structural, no wiring).
-2. **`connect_pins`** — wires nodes by name + pin name. `K2Node_CallFunction` and `K2Node_Timeline` regenerate all `PinId` GUIDs during `PostPasteNode`, so any `LinkedTo` references in the source T3D are silently broken; wiring by name is the only reliable approach.
-3. **`set_pin_default`** — re-applies pin defaults clobbered by `ReconstructNode`.
-4. **`add_timeline_track`** — adds curve data for any pasted timeline nodes.
+1. **`paste_bp_nodes`** — creates non-timeline nodes (structural, no wiring).
+2. **`create_timeline`** — creates any `K2Node_Timeline` nodes properly bound to a `UTimelineTemplate`. **Do not paste timeline nodes via T3D** — `paste_bp_nodes` doesn't invoke the editor's `AddNewTimeline` path so the K2Node ends up with a phantom default-named template that can never accept track output pins.
+3. **`add_timeline_track`** — adds curve data and registers the track in `TrackDisplayOrder` so the K2Node generates the corresponding output pin.
+4. **`connect_pins`** — wires nodes by name + pin name. `K2Node_CallFunction` and `K2Node_Timeline` regenerate all `PinId` GUIDs during `PostPasteNode`, so any `LinkedTo` references in the source T3D are silently broken; wiring by name is the only reliable approach.
+5. **`set_pin_default`** — re-applies pin defaults clobbered by `ReconstructNode`.
 
 `K2Node_MacroInstance` (FlipFlop, ForEachLoop, etc.) requires a `GraphGuid` that points into the version-specific `StandardMacros` module and is not trivially generatable. Use macro-free equivalents — bool variable + `Branch` instead of FlipFlop, manual loop instead of ForEachLoop.
+
+## Choosing material vs Blueprint+Timeline
+
+For visual effects, decide which graph subsystem fits before reaching for tools:
+
+- **Material graph** — pure visuals (blinking neon, pulsing emissive, animated UVs, panning textures, fresnel rims, color cycling). Use `create_material` + `add_material_expression` + `connect_material_*`. Runs on the GPU, no per-frame BP tick.
+- **Blueprint + Timeline** — gameplay-driven behaviour (door rotates on E, light fades when player picks up an item, character animates on damage, anything that needs to react to events or be queried at runtime). Use `create_timeline` + `add_timeline_track` + `connect_pins`.
+
+Quick test: if "give the mesh a material that does X" satisfies the request, use materials. If the request involves *responding* to anything, use BP+Timeline.
 
 ## Errors
 

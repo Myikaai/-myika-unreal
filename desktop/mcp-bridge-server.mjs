@@ -146,8 +146,96 @@ const TOOLS = [
     }
   },
   {
+    name: 'create_timeline',
+    description: 'Create a working K2Node_Timeline in a Blueprint graph. This is the only reliable way to make a timeline - paste_bp_nodes does NOT create a backing UTimelineTemplate, leaving the K2Node unable to receive track output pins. Use this BEFORE add_timeline_track. Returns the created node_name and final timeline_name (may have a numeric suffix if there was a naming collision).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Blueprint asset path, e.g. '/Game/Blueprints/BP_PulsingLight'" },
+        graph_name: { type: 'string', description: "Target graph name: usually 'EventGraph'" },
+        timeline_name: { type: 'string', description: "Desired variable name for the timeline, e.g. 'PulseTimeline'. Will be made unique if it conflicts." },
+        auto_play: { type: 'boolean', description: 'If true, the timeline plays as soon as the actor is created.', default: false },
+        loop: { type: 'boolean', description: 'If true, the timeline loops when it reaches the end.', default: true },
+        node_pos_x: { type: 'number', description: 'X coordinate of the node in the graph editor.', default: 0 },
+        node_pos_y: { type: 'number', description: 'Y coordinate of the node in the graph editor.', default: 0 }
+      },
+      required: ['asset_path', 'graph_name', 'timeline_name']
+    }
+  },
+  {
+    name: 'create_material',
+    description: 'Create a new UMaterial asset. Use this BEFORE add_material_expression / connect_material_expressions / connect_material_property when building shaders. Reach for materials when the request is a pure visual effect (blinking neon, pulsing emissive, animated UVs); use a Blueprint+Timeline instead when the effect is gameplay-driven.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Material asset path under /Game/, e.g. '/Game/Materials/M_BlinkingNeon'" },
+        overwrite: { type: 'boolean', description: 'If true, delete an existing asset at this path before creating. Default false (returns existing).', default: false }
+      },
+      required: ['asset_path']
+    }
+  },
+  {
+    name: 'add_material_expression',
+    description: 'Add an expression node (Time, Multiply, Frac, Round, ScalarParameter, VectorParameter, Constant, etc.) to a Material. Returns the auto-named node so you can reference it in connect_material_expressions calls. For ScalarParameter/VectorParameter, supply parameter_name + default_scalar/default_vector to expose runtime parameters.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Material asset path, e.g. '/Game/Materials/M_BlinkingNeon'" },
+        expression_type: { type: 'string', description: "Short name like 'Time', 'Multiply', 'Frac', 'Round', 'ScalarParameter', 'VectorParameter', 'Constant', 'TextureSample', 'Lerp'. Or full UE class name like 'MaterialExpressionMultiply'." },
+        node_pos_x: { type: 'number', description: 'X position in the material editor canvas.', default: 0 },
+        node_pos_y: { type: 'number', description: 'Y position in the material editor canvas.', default: 0 },
+        parameter_name: { type: 'string', description: "For ScalarParameter/VectorParameter: the runtime parameter name (e.g. 'BlinkSpeed', 'Color')." },
+        default_scalar: { type: 'number', description: 'Default value for ScalarParameter or Constant.' },
+        default_vector: { type: 'object', description: 'Default value for VectorParameter, as {r, g, b, a}.', properties: { r: {type:'number'}, g: {type:'number'}, b: {type:'number'}, a: {type:'number'} } }
+      },
+      required: ['asset_path', 'expression_type']
+    }
+  },
+  {
+    name: 'connect_material_expressions',
+    description: 'Wire one material-expression node\'s output to another\'s input. Use empty string for from_pin to use the default output (most expressions have only one). Common to_pin names: A, B (Multiply/Add/Subtract), Alpha (Lerp), X (Frac/Round/Sin/Cos).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Material asset path" },
+        from_node: { type: 'string', description: "Source expression node name returned by add_material_expression, e.g. 'MaterialExpressionTime_0'" },
+        from_pin: { type: 'string', description: "Source output name, or empty string for the default output.", default: '' },
+        to_node: { type: 'string', description: "Target expression node name" },
+        to_pin: { type: 'string', description: "Target input name, e.g. 'A', 'B', 'Alpha'" }
+      },
+      required: ['asset_path', 'from_node', 'to_node', 'to_pin']
+    }
+  },
+  {
+    name: 'connect_material_property',
+    description: 'Wire a material-expression node\'s output to a final material property (BaseColor, EmissiveColor, Metallic, Roughness, Normal, Opacity, etc.). Call this last to drive the actual material output channels.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Material asset path" },
+        from_node: { type: 'string', description: "Source expression node name" },
+        from_pin: { type: 'string', description: "Source output name, or empty string for default.", default: '' },
+        property: { type: 'string', enum: ['BaseColor','EmissiveColor','Metallic','Roughness','Specular','Normal','Opacity','OpacityMask','WorldPositionOffset','AmbientOcclusion','Refraction','PixelDepthOffset','SubsurfaceColor'], description: 'Material property channel to drive.' }
+      },
+      required: ['asset_path', 'from_node', 'property']
+    }
+  },
+  {
+    name: 'list_node_pins',
+    description: 'Return each node\'s pins (name, direction, category, default) for a Blueprint graph. Use after connect_pins or set_pin_default fails - the failure message lists pin names but list_node_pins gives full pin metadata. Optionally scoped to a single node_name. Cheaper than introspecting via run_python (which UE 5.7 does not expose for K2Node pins).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Blueprint asset path, e.g. '/Game/Blueprints/BP_Door'" },
+        graph_name: { type: 'string', description: "Target graph name: 'EventGraph', 'ConstructionScript', or a function name" },
+        node_name: { type: 'string', description: "Optional - scope the result to a single node (e.g. 'K2Node_Timeline_PulseTimeline'). Omit to list all nodes in the graph." }
+      },
+      required: ['asset_path', 'graph_name']
+    }
+  },
+  {
     name: 'add_timeline_track',
-    description: 'Add a float or vector track with keyframes to a K2Node_Timeline in a Blueprint. Timeline nodes paste structurally via T3D but curve data doesn\'t carry — this tool adds the track data programmatically.',
+    description: 'Add a float or vector track with keyframes to a K2Node_Timeline in a Blueprint. NOTE: this only works on timeline nodes that have a backing UTimelineTemplate. paste_bp_nodes does NOT create one - if you pasted a K2Node_Timeline via T3D, you must call FBlueprintEditorUtils::AddNewTimeline via run_python first, or the track will fail with a clear error listing the available templates.',
     inputSchema: {
       type: 'object',
       properties: {

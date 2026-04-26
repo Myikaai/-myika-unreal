@@ -34,8 +34,11 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogMyikaBridge, Log, All);
 
-// Magic GUID from RFC 6455
-static const FString WebSocketMagicGuid = TEXT("258EAFA5-E914-47DA-95CA-5AB5DC76B45B");
+// Magic GUID from RFC 6455 §1.3. Standards-compliant clients (e.g. Python's
+// websocket-client) verify Sec-WebSocket-Accept against this exact value, so
+// any deviation breaks the handshake for them. The Tauri/JS client doesn't
+// validate, which is why a wrong GUID went unnoticed for a while.
+static const FString WebSocketMagicGuid = TEXT("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
 
 // ============================================================================
 // Construction / Destruction
@@ -468,7 +471,20 @@ FString FMyikaBridgeServer::HandleConnectPins(const FString& ArgsJson)
 		}
 		if (!SrcPinPtr)
 		{
-			Errors.Add(FString::Printf(TEXT("Source pin '%s' not found on '%s'"), *SrcPin, *SrcNode));
+			// List available pins so the agent can self-correct without an introspection round-trip.
+			TArray<FString> AvailableOut, AvailableIn;
+			for (UEdGraphPin* Pin : (*SrcNodePtr)->Pins)
+			{
+				if (!Pin) continue;
+				if (Pin->Direction == EGPD_Output) AvailableOut.Add(Pin->PinName.ToString());
+				else AvailableIn.Add(Pin->PinName.ToString());
+			}
+			Errors.Add(FString::Printf(
+				TEXT("Source pin '%s' not found on '%s' (available outputs: [%s], inputs: [%s])"),
+				*SrcPin, *SrcNode,
+				*FString::Join(AvailableOut, TEXT(", ")),
+				*FString::Join(AvailableIn, TEXT(", "))
+			));
 			continue;
 		}
 
@@ -496,7 +512,19 @@ FString FMyikaBridgeServer::HandleConnectPins(const FString& ArgsJson)
 		}
 		if (!TgtPinPtr)
 		{
-			Errors.Add(FString::Printf(TEXT("Target pin '%s' not found on '%s'"), *TgtPin, *TgtNode));
+			TArray<FString> AvailableIn, AvailableOut;
+			for (UEdGraphPin* Pin : (*TgtNodePtr)->Pins)
+			{
+				if (!Pin) continue;
+				if (Pin->Direction == EGPD_Input) AvailableIn.Add(Pin->PinName.ToString());
+				else AvailableOut.Add(Pin->PinName.ToString());
+			}
+			Errors.Add(FString::Printf(
+				TEXT("Target pin '%s' not found on '%s' (available inputs: [%s], outputs: [%s])"),
+				*TgtPin, *TgtNode,
+				*FString::Join(AvailableIn, TEXT(", ")),
+				*FString::Join(AvailableOut, TEXT(", "))
+			));
 			continue;
 		}
 
@@ -619,7 +647,19 @@ FString FMyikaBridgeServer::HandleSetPinDefault(const FString& ArgsJson)
 	}
 	if (!TargetPin)
 	{
-		FString Err = FString::Printf(TEXT("Pin '%s' not found on node '%s' in graph '%s'"), *PinName, *NodeName, *GraphName);
+		TArray<FString> AvailableIn, AvailableOut;
+		for (UEdGraphPin* Pin : TargetNode->Pins)
+		{
+			if (!Pin) continue;
+			if (Pin->Direction == EGPD_Input) AvailableIn.Add(Pin->PinName.ToString());
+			else AvailableOut.Add(Pin->PinName.ToString());
+		}
+		FString Err = FString::Printf(
+			TEXT("Pin '%s' not found on node '%s' in graph '%s' (available inputs: [%s], outputs: [%s])"),
+			*PinName, *NodeName, *GraphName,
+			*FString::Join(AvailableIn, TEXT(", ")),
+			*FString::Join(AvailableOut, TEXT(", "))
+		);
 		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
 		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
 	}
@@ -701,18 +741,64 @@ FString FMyikaBridgeServer::HandleAddTimelineTrack(const FString& ArgsJson)
 
 	if (!TimelineNode)
 	{
-		FString Err = FString::Printf(TEXT("Timeline node '%s' not found in Blueprint '%s'"), *TimelineNodeName, *AssetPath);
+		// List the K2Node_Timeline names that DO exist in this BP, so the agent
+		// can self-correct without polling.
+		TArray<FString> AvailableTimelines;
+		for (UEdGraph* Graph : BP->UbergraphPages)
+		{
+			if (!Graph) continue;
+			for (UEdGraphNode* Node : Graph->Nodes)
+			{
+				if (Cast<UK2Node_Timeline>(Node)) AvailableTimelines.Add(Node->GetName());
+			}
+		}
+		FString Err = FString::Printf(
+			TEXT("Timeline node '%s' not found in Blueprint '%s' (available K2Node_Timeline nodes: [%s])"),
+			*TimelineNodeName, *AssetPath,
+			*FString::Join(AvailableTimelines, TEXT(", "))
+		);
 		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
 		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
 	}
 
-	// Get or verify the UTimelineTemplate
+	// Get or verify the UTimelineTemplate. After paste_bp_nodes, K2Node_Timeline
+	// is structurally present but the UTimelineTemplate (where tracks actually
+	// live) is missing - paste does not invoke the editor's AddNewTimeline
+	// path. Self-heal: create the template ourselves so the agent's natural
+	// flow (paste timeline node + add_timeline_track) just works. The K2Node
+	// already has the right TimelineName from the paste, so binding by name
+	// will pick up the new template at ReconstructNode time.
 	UTimelineTemplate* TimelineTemplate = BP->FindTimelineTemplateByVariableName(TimelineNode->TimelineName);
 	if (!TimelineTemplate)
 	{
-		FString Err = FString::Printf(TEXT("UTimelineTemplate not found for timeline '%s'"), *TimelineNodeName);
-		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
-		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+		FName TLName = TimelineNode->TimelineName;
+		if (TLName.IsNone())
+		{
+			// Fall back to deriving a name from the node's GetName() so we
+			// have something to register the template under. Not ideal but
+			// better than failing outright.
+			TLName = FName(*FString::Printf(TEXT("Timeline_%s"), *TimelineNodeName));
+			TimelineNode->TimelineName = TLName;
+		}
+		TimelineTemplate = FBlueprintEditorUtils::AddNewTimeline(BP, TLName);
+		if (!TimelineTemplate)
+		{
+			TArray<FString> AvailableTemplates;
+			for (UTimelineTemplate* TT : BP->Timelines)
+			{
+				if (TT) AvailableTemplates.Add(TT->GetVariableName().ToString());
+			}
+			FString Err = FString::Printf(
+				TEXT("Failed to auto-create UTimelineTemplate for K2Node_Timeline '%s' (TimelineName='%s'). ")
+				TEXT("Available timeline variable names in this BP after attempted AddNewTimeline: [%s]."),
+				*TimelineNodeName, *TLName.ToString(),
+				*FString::Join(AvailableTemplates, TEXT(", "))
+			);
+			Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+			return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+		}
+		UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] add_timeline_track: auto-created missing UTimelineTemplate '%s' for K2Node_Timeline '%s'"),
+			*TLName.ToString(), *TimelineNodeName);
 	}
 
 	// Check if track name already exists
@@ -803,7 +889,12 @@ FString FMyikaBridgeServer::HandleAddTimelineTrack(const FString& ArgsJson)
 		}
 		NewTrack.CurveFloat = NewCurve;
 
-		TimelineTemplate->FloatTracks.Add(NewTrack);
+		const int32 NewIdx = TimelineTemplate->FloatTracks.Add(NewTrack);
+		// CRITICAL: K2Node_Timeline::AllocateDefaultPins reads tracks from
+		// TrackDisplayOrder, NOT directly from FloatTracks. Without this call
+		// the track exists in the template but no output pin is generated on
+		// the K2Node. (See Engine/Private/K2Node_Timeline.cpp ~line 151.)
+		TimelineTemplate->AddDisplayTrack(FTTTrackId(FTTTrackBase::TT_FloatInterp, NewIdx));
 		OutputPinName = TrackName;
 	}
 	else // vector
@@ -820,7 +911,8 @@ FString FMyikaBridgeServer::HandleAddTimelineTrack(const FString& ArgsJson)
 		}
 		NewTrack.CurveVector = NewCurve;
 
-		TimelineTemplate->VectorTracks.Add(NewTrack);
+		const int32 NewIdx = TimelineTemplate->VectorTracks.Add(NewTrack);
+		TimelineTemplate->AddDisplayTrack(FTTTrackId(FTTTrackBase::TT_VectorInterp, NewIdx));
 		OutputPinName = TrackName;
 	}
 
@@ -844,6 +936,220 @@ FString FMyikaBridgeServer::HandleAddTimelineTrack(const FString& ArgsJson)
 	);
 }
 
+FString FMyikaBridgeServer::HandleCreateTimeline(const FString& ArgsJson)
+{
+	TSharedPtr<FJsonObject> Args;
+	TSharedRef<TJsonReader<>> ArgsReader = TJsonReaderFactory<>::Create(ArgsJson);
+	if (!FJsonSerializer::Deserialize(ArgsReader, Args) || !Args.IsValid())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Failed to parse args JSON\"}}");
+	}
+
+	FString AssetPath = Args->GetStringField(TEXT("asset_path"));
+	FString GraphName = Args->GetStringField(TEXT("graph_name"));
+	FString TimelineName = Args->GetStringField(TEXT("timeline_name"));
+	bool bAutoPlay = false; Args->TryGetBoolField(TEXT("auto_play"), bAutoPlay);
+	bool bLoop = true;     Args->TryGetBoolField(TEXT("loop"), bLoop);
+	double NodePosX = 0.0; Args->TryGetNumberField(TEXT("node_pos_x"), NodePosX);
+	double NodePosY = 0.0; Args->TryGetNumberField(TEXT("node_pos_y"), NodePosY);
+
+	if (AssetPath.IsEmpty() || GraphName.IsEmpty() || TimelineName.IsEmpty())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Missing required args: asset_path, graph_name, timeline_name\"}}");
+	}
+
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+	UBlueprint* BP = Asset ? Cast<UBlueprint>(Asset) : nullptr;
+	if (!BP)
+	{
+		FString Err = FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	UEdGraph* TargetGraph = nullptr;
+	for (UEdGraph* Graph : BP->UbergraphPages)
+	{
+		if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+	}
+	if (!TargetGraph)
+	{
+		for (UEdGraph* Graph : BP->FunctionGraphs)
+		{
+			if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+		}
+	}
+	if (!TargetGraph)
+	{
+		FString Err = FString::Printf(TEXT("Graph '%s' not found in Blueprint '%s'"), *GraphName, *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Step 1: pick a unique timeline variable name. AddNewTimeline doesn't
+	// dedup; if a template with this name already exists it returns nullptr.
+	FName UniqueTimelineName = FBlueprintEditorUtils::FindUniqueKismetName(BP, TimelineName);
+
+	// Step 2: create the UTimelineTemplate (this also registers the timeline
+	// as a member variable on the BP).
+	UTimelineTemplate* Template = FBlueprintEditorUtils::AddNewTimeline(BP, UniqueTimelineName);
+	if (!Template)
+	{
+		FString Err = FString::Printf(
+			TEXT("FBlueprintEditorUtils::AddNewTimeline failed for '%s' in '%s'"),
+			*UniqueTimelineName.ToString(), *AssetPath
+		);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+	Template->bAutoPlay = bAutoPlay;
+	Template->bLoop = bLoop;
+
+	// Step 3: spawn the K2Node_Timeline programmatically (NOT via T3D paste).
+	// This is the path the editor uses internally; it ensures TimelineName,
+	// TimelineGuid, and the binding to the new UTimelineTemplate are all set
+	// consistently, so ReconstructNode generates the track output pins.
+	UK2Node_Timeline* Node = NewObject<UK2Node_Timeline>(TargetGraph);
+	Node->SetFlags(RF_Transactional);
+	TargetGraph->AddNode(Node, /*bFromUI*/ false, /*bSelectNewNode*/ false);
+	Node->TimelineName = UniqueTimelineName;
+	Node->TimelineGuid = Template->TimelineGuid;
+	Node->CreateNewGuid();
+	Node->PostPlacedNewNode();
+	Node->NodePosX = static_cast<int32>(NodePosX);
+	Node->NodePosY = static_cast<int32>(NodePosY);
+	Node->AllocateDefaultPins();
+
+	FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+	FKismetEditorUtilities::CompileBlueprint(BP);
+	UEditorAssetLibrary::SaveAsset(AssetPath, false);
+
+	UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] create_timeline: created '%s' (K2Node=%s) in %s::%s"),
+		*UniqueTimelineName.ToString(), *Node->GetName(), *AssetPath, *GraphName);
+
+	FString EscNodeName = Node->GetName().Replace(TEXT("\""), TEXT("\\\""));
+	FString EscTimelineName = UniqueTimelineName.ToString().Replace(TEXT("\""), TEXT("\\\""));
+	return FString::Printf(
+		TEXT("{\"ok\":true,\"result\":{\"success\":true,\"node_name\":\"%s\",\"timeline_name\":\"%s\"}}"),
+		*EscNodeName, *EscTimelineName
+	);
+}
+
+FString FMyikaBridgeServer::HandleListNodePins(const FString& ArgsJson)
+{
+	TSharedPtr<FJsonObject> Args;
+	TSharedRef<TJsonReader<>> ArgsReader = TJsonReaderFactory<>::Create(ArgsJson);
+	if (!FJsonSerializer::Deserialize(ArgsReader, Args) || !Args.IsValid())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Failed to parse args JSON\"}}");
+	}
+
+	FString AssetPath = Args->GetStringField(TEXT("asset_path"));
+	FString GraphName = Args->GetStringField(TEXT("graph_name"));
+	FString NodeName;
+	Args->TryGetStringField(TEXT("node_name"), NodeName); // optional
+
+	if (AssetPath.IsEmpty() || GraphName.IsEmpty())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Missing required args: asset_path, graph_name\"}}");
+	}
+
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+	UBlueprint* BP = Asset ? Cast<UBlueprint>(Asset) : nullptr;
+	if (!BP)
+	{
+		FString Err = FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	UEdGraph* TargetGraph = nullptr;
+	for (UEdGraph* Graph : BP->UbergraphPages)
+	{
+		if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+	}
+	if (!TargetGraph)
+	{
+		for (UEdGraph* Graph : BP->FunctionGraphs)
+		{
+			if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+		}
+	}
+	if (!TargetGraph)
+	{
+		TArray<FString> AvailableGraphs;
+		for (UEdGraph* G : BP->UbergraphPages) if (G) AvailableGraphs.Add(G->GetName());
+		for (UEdGraph* G : BP->FunctionGraphs) if (G) AvailableGraphs.Add(G->GetName());
+		FString Err = FString::Printf(
+			TEXT("Graph '%s' not found in Blueprint '%s' (available: [%s])"),
+			*GraphName, *AssetPath, *FString::Join(AvailableGraphs, TEXT(", "))
+		);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Build the nodes JSON
+	TArray<TSharedPtr<FJsonValue>> NodesJson;
+	for (UEdGraphNode* Node : TargetGraph->Nodes)
+	{
+		if (!Node) continue;
+		if (!NodeName.IsEmpty() && Node->GetName() != NodeName) continue;
+
+		TSharedPtr<FJsonObject> NodeObj = MakeShared<FJsonObject>();
+		NodeObj->SetStringField(TEXT("name"), Node->GetName());
+		NodeObj->SetStringField(TEXT("class"), Node->GetClass()->GetName());
+
+		TArray<TSharedPtr<FJsonValue>> PinsJson;
+		for (UEdGraphPin* Pin : Node->Pins)
+		{
+			if (!Pin) continue;
+			TSharedPtr<FJsonObject> PinObj = MakeShared<FJsonObject>();
+			PinObj->SetStringField(TEXT("name"), Pin->PinName.ToString());
+			PinObj->SetStringField(TEXT("direction"), Pin->Direction == EGPD_Input ? TEXT("input") : TEXT("output"));
+			PinObj->SetStringField(TEXT("category"), Pin->PinType.PinCategory.ToString());
+			if (!Pin->PinType.PinSubCategory.IsNone())
+			{
+				PinObj->SetStringField(TEXT("sub_category"), Pin->PinType.PinSubCategory.ToString());
+			}
+			PinObj->SetBoolField(TEXT("is_hidden"), Pin->bHidden);
+			PinObj->SetBoolField(TEXT("has_default_value"), !Pin->DefaultValue.IsEmpty());
+			if (!Pin->DefaultValue.IsEmpty())
+			{
+				PinObj->SetStringField(TEXT("default_value"), Pin->DefaultValue);
+			}
+			PinsJson.Add(MakeShared<FJsonValueObject>(PinObj));
+		}
+		NodeObj->SetArrayField(TEXT("pins"), PinsJson);
+		NodesJson.Add(MakeShared<FJsonValueObject>(NodeObj));
+	}
+
+	if (!NodeName.IsEmpty() && NodesJson.Num() == 0)
+	{
+		TArray<FString> AvailableNodes;
+		for (UEdGraphNode* N : TargetGraph->Nodes) if (N) AvailableNodes.Add(N->GetName());
+		FString Err = FString::Printf(
+			TEXT("Node '%s' not found in graph '%s' (available: [%s])"),
+			*NodeName, *GraphName, *FString::Join(AvailableNodes, TEXT(", "))
+		);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+	Result->SetBoolField(TEXT("success"), true);
+	Result->SetArrayField(TEXT("nodes"), NodesJson);
+
+	TSharedPtr<FJsonObject> Outer = MakeShared<FJsonObject>();
+	Outer->SetBoolField(TEXT("ok"), true);
+	Outer->SetObjectField(TEXT("result"), Result);
+
+	FString Out;
+	TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Out);
+	FJsonSerializer::Serialize(Outer.ToSharedRef(), Writer);
+	return Out;
+}
+
 FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const FString& ArgsJson)
 {
 	// C++ tool handlers — bypass Python for direct editor API access
@@ -865,6 +1171,16 @@ FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const F
 	if (ToolName == TEXT("add_timeline_track"))
 	{
 		return HandleAddTimelineTrack(ArgsJson);
+	}
+
+	if (ToolName == TEXT("list_node_pins"))
+	{
+		return HandleListNodePins(ArgsJson);
+	}
+
+	if (ToolName == TEXT("create_timeline"))
+	{
+		return HandleCreateTimeline(ArgsJson);
 	}
 
 	// Build the payload JSON that dispatch_json expects

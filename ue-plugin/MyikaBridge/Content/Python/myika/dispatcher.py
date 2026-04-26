@@ -131,6 +131,10 @@ def _load_tools():
         "run_python",
         "get_compile_errors",
         "read_blueprint_summary",
+        "create_material",
+        "add_material_expression",
+        "connect_material_expressions",
+        "connect_material_property",
     ]
     for mod_name in tool_modules:
         try:

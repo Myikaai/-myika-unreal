@@ -41,6 +41,14 @@ ALL_TOOLS = (
     "read_blueprint_summary",
     "paste_bp_nodes",
     "connect_pins",
+    "set_pin_default",
+    "add_timeline_track",
+    "list_node_pins",
+    "create_timeline",
+    "create_material",
+    "add_material_expression",
+    "connect_material_expressions",
+    "connect_material_property",
 )
 
 
@@ -108,6 +116,7 @@ PROFILES = {
             "read_file",
             "get_compile_errors",
             "read_blueprint_summary",
+            "list_node_pins",
         }),
         path_allowlist={
             "read_file": list(_STRICT_READ_PATHS),

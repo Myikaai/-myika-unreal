@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Visual polish across chat, plan-review, settings, bridge-status, and toast components.
 - Shared `useBridgeStatus` hook (`desktop/src/lib/useBridgeStatus.ts`).
 - Test infrastructure: door and blink gate scripts, expanded stress tests, `verify-read-blueprint-summary.mjs`.
+- Pulse gate (`tests/run-pulse-gate.ps1`, `tests/reset-pulse-baseline.ps1`): natural-language `BP_PulsingLight` 5x reliability gate, complementary to the door (NL prompt) and blink (T3D-snippet) gates. Asserts no duplicate components and no run_python retry loops.
+- New `list_node_pins` C++ tool: returns each node's pins (name, direction, category, default) for a Blueprint graph. Lets the agent introspect graph state without needing the absent UE 5.7 Python pin enumeration.
+- New `create_timeline` C++ tool: creates a `K2Node_Timeline` AND its backing `UTimelineTemplate` properly bound, via `FBlueprintEditorUtils::AddNewTimeline`. The only reliable way to make a working timeline; `paste_bp_nodes` for timelines creates a phantom default-named template that cannot accept track output pins.
+- New material-graph tool family (Python): `create_material`, `add_material_expression`, `connect_material_expressions`, `connect_material_property`. Wraps `unreal.MaterialEditingLibrary` so the agent can build shaders end-to-end (Time / Frac / Round / ScalarParameter / VectorParameter / multiply nodes wired to `BaseColor` / `EmissiveColor` / `Metallic` / `Roughness` / `Normal` / `Opacity`).
 - `docs/ARCHITECTURE.md` and `docs/TOOL_REFERENCE.md` rewritten to be self-contained reference documents.
 - `.github/` templates: pull-request template, bug-report and feature-request issue forms.
 - `CONTRIBUTING.md` documenting Conventional Commits, branch model, PR expectations.
@@ -20,6 +24,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - `read_blueprint_summary` handle filtering refined.
 - `.gitignore` now excludes `CLAUDE-DEV.md` defensively. The agent's runtime context lives in a separate private tree.
+- `connect_pins` and `set_pin_default` now list available input/output pin names when a pin lookup fails. Previously the agent had to introspect via `run_python` (which UE 5.7 does not support for K2Node pins), burning ~10 calls per failure.
+- `add_timeline_track` self-heals when the K2Node_Timeline is missing its `UTimelineTemplate` (the typical post-`paste_bp_nodes` failure mode): creates the template via `FBlueprintEditorUtils::AddNewTimeline`. Errors when the K2Node itself is missing now list the available timeline node names.
+- `policy.py` `ALL_TOOLS` was missing `set_pin_default` and `add_timeline_track` despite both being live C++ tools. Added them plus `list_node_pins`, `create_timeline`, and the four material tools. Strict profile now permits `list_node_pins` (read-only).
+
+### Fixed
+- `add_timeline_track` previously returned `success=true` but never created the K2Node output pin. Root cause: `UTimelineTemplate.FloatTracks.Add(NewTrack)` updates the storage array but `K2Node_Timeline::AllocateDefaultPins` reads tracks from a separate `TrackDisplayOrder` array (Engine/Private/K2Node_Timeline.cpp ~line 151). Now also calls `UTimelineTemplate::AddDisplayTrack(FTTTrackId(TT_FloatInterp, NewIdx))` so the pin actually materializes.
+- WebSocket handshake used a non-RFC-6455 magic GUID (`...5AB5DC76B45B` instead of `...C5AB0DC85B11`). Standards-compliant clients (Python `websocket-client`, etc.) rejected the handshake. The Tauri/JS client wasn't validating, so the bug went unnoticed.
 
 ## [0.1.0-demo] - 2026-04-26
 
