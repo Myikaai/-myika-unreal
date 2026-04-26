@@ -258,6 +258,27 @@ const TOOLS = [
       },
       required: ['asset_path', 'timeline_node_name', 'track_name', 'track_type']
     }
+  },
+  {
+    name: 'make_blinking_neon_material',
+    description: 'High-level skill: build a complete "blinking neon" material in one call. Wraps the create_material / add_material_expression / connect_material_expressions / connect_material_property primitives into a single recipe. Produces a material that blinks at BlinkSpeed Hz with Color * Intensity emissive, with all three exposed as live-tweakable parameters. Use this when the user says "make a blinking light/neon/sign" and wants a visual effect (not gameplay-driven). For gameplay-driven pulse behavior tied to a PointLight component, use the Blueprint+Timeline path instead.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Material asset path. Defaults to '/Game/Materials/M_BlinkingNeon'.", default: '/Game/Materials/M_BlinkingNeon' },
+        overwrite: { type: 'boolean', description: 'If true (default), recreate the asset if it exists.', default: true },
+        blink_speed: { type: 'number', description: 'Default blink rate (BlinkSpeed parameter). 5.0 = ~5Hz strobe.', default: 5.0 },
+        intensity: { type: 'number', description: 'Default emissive multiplier (Intensity parameter).', default: 10.0 },
+        color: {
+          type: 'object',
+          description: 'Default color (Color parameter) as RGBA 0..1.',
+          properties: {
+            r: { type: 'number' }, g: { type: 'number' },
+            b: { type: 'number' }, a: { type: 'number' }
+          }
+        }
+      }
+    }
   }
 ];
 

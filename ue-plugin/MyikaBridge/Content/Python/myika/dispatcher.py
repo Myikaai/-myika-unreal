@@ -135,6 +135,7 @@ def _load_tools():
         "add_material_expression",
         "connect_material_expressions",
         "connect_material_property",
+        "make_blinking_neon_material",
     ]
     for mod_name in tool_modules:
         try:

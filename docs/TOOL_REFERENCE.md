@@ -320,6 +320,40 @@ The agent should reach for this tool *only* when needed, since `connect_pins` an
 
 ---
 
+## High-level skills
+
+Skills wrap a fixed recipe of primitives into a single tool call so the agent doesn't have to orchestrate ten-plus calls when the user asks for a well-known target.
+
+### `make_blinking_neon_material`
+
+Build a complete blinking-neon material in one call. Wraps `create_material` + 9 `add_material_expression` + 8 `connect_material_expressions` + 2 `connect_material_property` calls. The resulting material exposes `BlinkSpeed` (scalar Hz), `Color` (vector RGBA), and `Intensity` (scalar) as runtime parameters so the user can live-tweak via a Material Instance.
+
+Use when the user says "make a blinking neon / blinking light / strobing sign" and the desired behavior is a pure visual effect. For gameplay-driven pulse behavior tied to a `PointLightComponent`, use the Blueprint+Timeline path instead (see graph construction notes below).
+
+```json
+// Request (all fields optional)
+{
+  "asset_path": "/Game/Materials/M_BlinkingNeon",
+  "blink_speed": 5.0,
+  "intensity": 10.0,
+  "color": {"r": 1.0, "g": 0.2, "b": 0.0, "a": 1.0},
+  "overwrite": true
+}
+
+// Response
+{
+  "success": true,
+  "asset_path": "/Game/Materials/M_BlinkingNeon",
+  "parameters": {"BlinkSpeed": 5.0, "Intensity": 10.0, "Color": {"r":1.0,"g":0.2,"b":0.0,"a":1.0}},
+  "nodes": {"Time": "MaterialExpressionTime_0", "BlinkSpeed": "MaterialExpressionScalarParameter_0", "...": "..."},
+  "next_step": "Apply /Game/Materials/M_BlinkingNeon to a mesh in the level..."
+}
+```
+
+The pulsing-light Blueprint+Timeline equivalent (`make_pulsing_light_actor`) is not yet wrapped as a single tool call — Python tools cannot synchronously invoke C++ tool handlers, so the recipe lives in [`docs/SKILLS/pulsing_light.md`](SKILLS/pulsing_light.md) for the agent to follow step by step until the C++ orchestrator lands.
+
+---
+
 ## Synthetic tool
 
 ### `propose_plan`

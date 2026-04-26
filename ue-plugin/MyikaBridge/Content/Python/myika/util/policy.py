@@ -49,6 +49,7 @@ ALL_TOOLS = (
     "add_material_expression",
     "connect_material_expressions",
     "connect_material_property",
+    "make_blinking_neon_material",
 )
 
 
