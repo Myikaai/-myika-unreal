@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Myikaai/myika-unreal/security/advisories/new
+    about: Please report security issues privately via a GitHub security advisory rather than a public issue.
+  - name: Discussion
+    url: https://github.com/Myikaai/myika-unreal/discussions
+    about: Questions, ideas, and general conversation belong in Discussions.

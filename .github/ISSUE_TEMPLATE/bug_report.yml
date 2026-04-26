@@ -1,0 +1,74 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. The more we know about your environment and the steps to reproduce, the faster we can fix it.
+
+        For security vulnerabilities, please use a [private security advisory](../../security/advisories/new) instead of a public issue.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: When I do X, Y happens instead of Z.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps that consistently produce the bug. Include the prompt or tool call if relevant.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: false
+  - type: input
+    id: ue-version
+    attributes:
+      label: Unreal Engine version
+      placeholder: "5.7.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Windows 11 Pro 23H2"
+    validations:
+      required: true
+  - type: input
+    id: myika-version
+    attributes:
+      label: Myika version / commit
+      description: Tag or commit hash if you can find it (e.g. `v0.1.0-demo` or `git rev-parse --short HEAD`).
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste the relevant section of `myika_plugin/Saved/Logs/*.log` and any errors from the desktop app. Redact secrets and absolute paths.
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I am not reporting a security vulnerability (those use a private advisory instead).
+          required: true

@@ -12,6 +12,7 @@ docs/RESEARCH/
 docs/design/handoff/
 docs/superpowers/
 MYIKA_UNREAL_DEMO_SPEC.md
+CLAUDE-DEV.md
 
 # Local test screenshots (not source)
 tests/*.png

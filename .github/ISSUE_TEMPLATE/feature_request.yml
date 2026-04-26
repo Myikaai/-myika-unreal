@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a new capability or workflow.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea. Please describe the workflow you wish existed rather than a specific implementation; that gives us the most flexibility to find the best path.
+  - type: textarea
+    id: workflow
+    attributes:
+      label: What workflow do you wish existed?
+      description: Describe the user-facing outcome. "I want to be able to ..." rather than "Add a button that ...".
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What does this need to cover to be useful? Single Blueprint, whole project, multi-project, etc.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing tools, manual workarounds, or other ideas you ruled out.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Studio constraints, team size, related issues, links to relevant docs.
+    validations:
+      required: false
