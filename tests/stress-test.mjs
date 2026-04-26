@@ -295,6 +295,161 @@ await test('paste_bp_nodes + connect_pins: full two-tool pattern', async () => {
   }
 });
 
+// ── set_pin_default ──
+
+await test('set_pin_default: set PrintString InString to custom value', async () => {
+  await deleteTestBP();
+  await createTestBP();
+  try {
+    // Paste the print_test T3D (BeginPlay + PrintString)
+    const paste = await call('paste_bp_nodes', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      t3d_text: T3D_SNIPPET,
+    });
+    assert(paste.ok && paste.result.success, `Paste failed: ${paste.result?.error}`);
+
+    // Set the InString pin to a custom value
+    const r = await call('set_pin_default', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      node_name: 'K2Node_CallFunction_0',
+      pin_name: 'InString',
+      default_value: 'Myika Day 12 Test',
+    });
+    assert(r.ok, `Bridge error: ${r.error?.message}`);
+    assert(r.result.success === true, `set_pin_default failed: ${r.result?.error}`);
+    assert(r.result.set_value === 'Myika Day 12 Test', `Expected 'Myika Day 12 Test', got '${r.result.set_value}'`);
+    assert(typeof r.result.previous_value === 'string', 'Expected previous_value string');
+  } finally {
+    await deleteTestBP();
+  }
+});
+
+await test('set_pin_default: invalid node name rejected', async () => {
+  await deleteTestBP();
+  await createTestBP();
+  try {
+    const r = await call('set_pin_default', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      node_name: 'NoSuchNode',
+      pin_name: 'InString',
+      default_value: 'test',
+    });
+    assert(r.ok, 'Bridge should deliver the response');
+    assert(r.result.success === false, 'Expected success=false for missing node');
+    assert(r.result.error.includes('NoSuchNode'), `Error should mention node name: ${r.result.error}`);
+  } finally {
+    await deleteTestBP();
+  }
+});
+
+// ── add_timeline_track ──
+
+// Minimal K2Node_Timeline T3D — just the node structure, no curve data (that's what add_timeline_track adds)
+const TIMELINE_T3D = `Begin Object Class=/Script/BlueprintGraph.K2Node_Timeline Name="K2Node_Timeline_0"
+   TimelineName="TestTimeline"
+   NodePosX=400
+   NodePosY=0
+   NodeGuid=AAAA00001111222233334444BBBBCCCC
+   CustomProperties Pin (PinId=DD001122334455660000000000000001,PinName="Play",Direction="EGPD_Input",PinType.PinCategory="exec",PinType.PinSubCategory="",PinType.PinSubCategoryObject=None,PinType.PinSubCategoryMemberReference=(),PinType.PinValueType=(),PinType.ContainerType=None,PinType.bIsReference=False,PinType.bIsConst=False,PinType.bIsWeakPointer=False,PinType.bIsUObjectWrapper=False,PinType.bSerializeAsSinglePrecisionFloat=False,PersistentGuid=00000000000000000000000000000000,bHidden=False,bNotConnectable=False,bDefaultValueIsReadOnly=False,bDefaultValueIsIgnored=False,bAdvancedView=False,bOrphanedPin=False,)
+End Object`;
+
+await test('add_timeline_track: add float track with keyframes', async () => {
+  await deleteTestBP();
+  await createTestBP();
+  try {
+    // Paste a timeline node via T3D
+    const paste = await call('paste_bp_nodes', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      t3d_text: TIMELINE_T3D,
+    });
+    assert(paste.ok && paste.result.success, `Timeline paste failed: ${paste.result?.error}`);
+    assert(paste.result.nodes_added === 1, `Expected 1 timeline node, got ${paste.result.nodes_added}`);
+
+    // Now add a float track
+    const r = await call('add_timeline_track', {
+      asset_path: TEST_BP_PATH,
+      timeline_node_name: 'K2Node_Timeline_0',
+      track_name: 'Rotation',
+      track_type: 'float',
+      keyframes: [
+        { time: 0, value: 0 },
+        { time: 1, value: 90 },
+      ],
+    });
+    assert(r.ok, `Bridge error: ${r.error?.message}`);
+    assert(r.result.success === true, `add_timeline_track failed: ${r.result?.error}`);
+    assert(r.result.track_added === 'Rotation', `Expected track 'Rotation', got '${r.result.track_added}'`);
+    assert(r.result.output_pin_added === 'Rotation', `Expected output pin 'Rotation', got '${r.result.output_pin_added}'`);
+  } finally {
+    await deleteTestBP();
+  }
+});
+
+// ── combined stress test: paste + timeline + pin default ──
+
+await test('combined: paste + add_timeline_track + set_pin_default + verify', async () => {
+  await deleteTestBP();
+  await createTestBP();
+  try {
+    // Step 1: Paste PrintString nodes
+    const paste = await call('paste_bp_nodes', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      t3d_text: T3D_SNIPPET,
+    });
+    assert(paste.ok && paste.result.success, `Paste failed: ${paste.result?.error}`);
+
+    // Step 2: Set pin default on PrintString InString
+    const pinDefault = await call('set_pin_default', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      node_name: 'K2Node_CallFunction_0',
+      pin_name: 'InString',
+      default_value: 'Door Opening',
+    });
+    assert(pinDefault.ok && pinDefault.result.success, `set_pin_default failed: ${pinDefault.result?.error}`);
+
+    // Step 3: Wire the nodes
+    const connect = await call('connect_pins', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      connections: [{
+        source_node: 'K2Node_Event_0',
+        source_pin: 'then',
+        target_node: 'K2Node_CallFunction_0',
+        target_pin: 'execute',
+      }],
+    });
+    assert(connect.ok && connect.result.connected === 1, `connect_pins failed: ${JSON.stringify(connect.result)}`);
+
+    // Step 4: Verify BP compiles clean
+    const compileCheck = await call('get_compile_errors', {});
+    assert(compileCheck.ok, 'get_compile_errors failed');
+    const bpErrors = compileCheck.result.blueprint_errors.filter(
+      e => e.asset && e.asset.includes('StressTest_Temp')
+    );
+    assert(bpErrors.length === 0, `BP has compile errors: ${JSON.stringify(bpErrors)}`);
+
+    // Step 5: Read back to verify pin default persisted after compile
+    const readBack = await call('set_pin_default', {
+      asset_path: TEST_BP_PATH,
+      graph_name: 'EventGraph',
+      node_name: 'K2Node_CallFunction_0',
+      pin_name: 'InString',
+      default_value: 'Door Opening',
+    });
+    assert(readBack.ok && readBack.result.success, `Readback failed: ${readBack.result?.error}`);
+    assert(readBack.result.previous_value === 'Door Opening',
+      `Pin default not persisted: expected 'Door Opening', got '${readBack.result.previous_value}'`);
+  } finally {
+    await deleteTestBP();
+  }
+});
+
 // ── journal: error context capture ──
 
 await test('run_journal: failed tool call has full error context in response', async () => {

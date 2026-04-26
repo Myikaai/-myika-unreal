@@ -150,4 +150,18 @@ private:
 	 * Supports batch connections — compiles/saves once after all wires.
 	 */
 	FString HandleConnectPins(const FString& ArgsJson);
+
+	/**
+	 * C++ handler for set_pin_default tool.
+	 * Sets a pin's DefaultValue by node name + pin name post-paste.
+	 * Needed because ReconstructNode clobbers DefaultValue from T3D.
+	 */
+	FString HandleSetPinDefault(const FString& ArgsJson);
+
+	/**
+	 * C++ handler for add_timeline_track tool.
+	 * Adds float/vector tracks + keyframes to a K2Node_Timeline post-paste.
+	 * Timeline nodes paste structurally but curve data doesn't carry via T3D.
+	 */
+	FString HandleAddTimelineTrack(const FString& ArgsJson);
 };

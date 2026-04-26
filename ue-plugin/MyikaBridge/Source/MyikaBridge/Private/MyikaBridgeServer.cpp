@@ -16,7 +16,7 @@
 #include "HAL/FileManager.h"
 #include "HAL/PlatformMisc.h"
 
-// paste_bp_nodes support
+// paste_bp_nodes / connect_pins / set_pin_default support
 #include "EdGraphUtilities.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
@@ -24,6 +24,13 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "EditorAssetLibrary.h"
+
+// add_timeline_track support
+#include "K2Node_Timeline.h"
+#include "Engine/TimelineTemplate.h"
+#include "Curves/CurveFloat.h"
+#include "Curves/CurveVector.h"
+#include "Curves/RichCurve.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMyikaBridge, Log, All);
 
@@ -532,6 +539,311 @@ FString FMyikaBridgeServer::HandleConnectPins(const FString& ArgsJson)
 	);
 }
 
+FString FMyikaBridgeServer::HandleSetPinDefault(const FString& ArgsJson)
+{
+	// Parse args
+	TSharedPtr<FJsonObject> Args;
+	TSharedRef<TJsonReader<>> ArgsReader = TJsonReaderFactory<>::Create(ArgsJson);
+	if (!FJsonSerializer::Deserialize(ArgsReader, Args) || !Args.IsValid())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Failed to parse args JSON\"}}");
+	}
+
+	FString AssetPath = Args->GetStringField(TEXT("asset_path"));
+	FString GraphName = Args->GetStringField(TEXT("graph_name"));
+	FString NodeName = Args->GetStringField(TEXT("node_name"));
+	FString PinName = Args->GetStringField(TEXT("pin_name"));
+	FString DefaultValue = Args->GetStringField(TEXT("default_value"));
+
+	if (AssetPath.IsEmpty() || GraphName.IsEmpty() || NodeName.IsEmpty() || PinName.IsEmpty())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Missing required args: asset_path, graph_name, node_name, pin_name\"}}");
+	}
+
+	// Load Blueprint
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+	UBlueprint* BP = Asset ? Cast<UBlueprint>(Asset) : nullptr;
+	if (!BP)
+	{
+		FString Err = FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Find graph
+	UEdGraph* TargetGraph = nullptr;
+	for (UEdGraph* Graph : BP->UbergraphPages)
+	{
+		if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+	}
+	if (!TargetGraph)
+	{
+		for (UEdGraph* Graph : BP->FunctionGraphs)
+		{
+			if (Graph && Graph->GetName() == GraphName) { TargetGraph = Graph; break; }
+		}
+	}
+	if (!TargetGraph)
+	{
+		FString Err = FString::Printf(TEXT("Graph '%s' not found in Blueprint '%s'"), *GraphName, *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Find node by name
+	UEdGraphNode* TargetNode = nullptr;
+	for (UEdGraphNode* Node : TargetGraph->Nodes)
+	{
+		if (Node && Node->GetName() == NodeName)
+		{
+			TargetNode = Node;
+			break;
+		}
+	}
+	if (!TargetNode)
+	{
+		FString Err = FString::Printf(TEXT("Node '%s' not found in graph '%s'"), *NodeName, *GraphName);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Find pin by name
+	UEdGraphPin* TargetPin = nullptr;
+	for (UEdGraphPin* Pin : TargetNode->Pins)
+	{
+		if (Pin && Pin->PinName == *PinName)
+		{
+			TargetPin = Pin;
+			break;
+		}
+	}
+	if (!TargetPin)
+	{
+		FString Err = FString::Printf(TEXT("Pin '%s' not found on node '%s' in graph '%s'"), *PinName, *NodeName, *GraphName);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Capture previous value
+	FString PreviousValue = TargetPin->DefaultValue;
+
+	// Set the new default value
+	TargetPin->DefaultValue = DefaultValue;
+
+	// Mark BP dirty, compile, save
+	FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+	FKismetEditorUtilities::CompileBlueprint(BP);
+	UEditorAssetLibrary::SaveAsset(AssetPath, false);
+
+	FString EscPrev = PreviousValue.Replace(TEXT("\""), TEXT("\\\""));
+	FString EscSet = DefaultValue.Replace(TEXT("\""), TEXT("\\\""));
+
+	UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] set_pin_default: %s.%s.%s.%s = '%s' (was '%s')"),
+		*AssetPath, *GraphName, *NodeName, *PinName, *DefaultValue, *PreviousValue);
+
+	return FString::Printf(
+		TEXT("{\"ok\":true,\"result\":{\"success\":true,\"set_value\":\"%s\",\"previous_value\":\"%s\"}}"),
+		*EscSet, *EscPrev
+	);
+}
+
+FString FMyikaBridgeServer::HandleAddTimelineTrack(const FString& ArgsJson)
+{
+	// Parse args
+	TSharedPtr<FJsonObject> Args;
+	TSharedRef<TJsonReader<>> ArgsReader = TJsonReaderFactory<>::Create(ArgsJson);
+	if (!FJsonSerializer::Deserialize(ArgsReader, Args) || !Args.IsValid())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Failed to parse args JSON\"}}");
+	}
+
+	FString AssetPath = Args->GetStringField(TEXT("asset_path"));
+	FString TimelineNodeName = Args->GetStringField(TEXT("timeline_node_name"));
+	FString TrackName = Args->GetStringField(TEXT("track_name"));
+	FString TrackType = Args->GetStringField(TEXT("track_type"));
+
+	if (AssetPath.IsEmpty() || TimelineNodeName.IsEmpty() || TrackName.IsEmpty() || TrackType.IsEmpty())
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"Missing required args: asset_path, timeline_node_name, track_name, track_type\"}}");
+	}
+
+	if (TrackType != TEXT("float") && TrackType != TEXT("vector"))
+	{
+		return TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"track_type must be 'float' or 'vector'\"}}");
+	}
+
+	// Load Blueprint
+	UObject* Asset = UEditorAssetLibrary::LoadAsset(AssetPath);
+	UBlueprint* BP = Asset ? Cast<UBlueprint>(Asset) : nullptr;
+	if (!BP)
+	{
+		FString Err = FString::Printf(TEXT("Blueprint not found: %s"), *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Find the K2Node_Timeline by name across all graphs
+	UK2Node_Timeline* TimelineNode = nullptr;
+	for (UEdGraph* Graph : BP->UbergraphPages)
+	{
+		if (!Graph) continue;
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			UK2Node_Timeline* TLNode = Cast<UK2Node_Timeline>(Node);
+			if (TLNode && TLNode->GetName() == TimelineNodeName)
+			{
+				TimelineNode = TLNode;
+				break;
+			}
+		}
+		if (TimelineNode) break;
+	}
+
+	if (!TimelineNode)
+	{
+		FString Err = FString::Printf(TEXT("Timeline node '%s' not found in Blueprint '%s'"), *TimelineNodeName, *AssetPath);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Get or verify the UTimelineTemplate
+	UTimelineTemplate* TimelineTemplate = BP->FindTimelineTemplateByVariableName(TimelineNode->TimelineName);
+	if (!TimelineTemplate)
+	{
+		FString Err = FString::Printf(TEXT("UTimelineTemplate not found for timeline '%s'"), *TimelineNodeName);
+		Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+		return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+	}
+
+	// Check if track name already exists
+	FName TrackFName(*TrackName);
+	if (TrackType == TEXT("float"))
+	{
+		for (const FTTFloatTrack& Track : TimelineTemplate->FloatTracks)
+		{
+			if (Track.GetTrackName() == TrackFName)
+			{
+				FString Err = FString::Printf(TEXT("Float track '%s' already exists on timeline '%s'"), *TrackName, *TimelineNodeName);
+				Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+				return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+			}
+		}
+	}
+	else // vector
+	{
+		for (const FTTVectorTrack& Track : TimelineTemplate->VectorTracks)
+		{
+			if (Track.GetTrackName() == TrackFName)
+			{
+				FString Err = FString::Printf(TEXT("Vector track '%s' already exists on timeline '%s'"), *TrackName, *TimelineNodeName);
+				Err = Err.Replace(TEXT("\""), TEXT("\\\""));
+				return FString::Printf(TEXT("{\"ok\":true,\"result\":{\"success\":false,\"error\":\"%s\"}}"), *Err);
+			}
+		}
+	}
+
+	// Parse keyframes array
+	const TArray<TSharedPtr<FJsonValue>>* KeyframesArray = nullptr;
+	Args->TryGetArrayField(TEXT("keyframes"), KeyframesArray);
+
+	// Sort keyframes by time (don't error on unordered)
+	struct FKeyframe { float Time; float Value; FVector VecValue; };
+	TArray<FKeyframe> Keyframes;
+	if (KeyframesArray)
+	{
+		for (const TSharedPtr<FJsonValue>& KfVal : *KeyframesArray)
+		{
+			const TSharedPtr<FJsonObject>* KfObj = nullptr;
+			if (KfVal.IsValid() && KfVal->TryGetObject(KfObj) && KfObj && (*KfObj).IsValid())
+			{
+				FKeyframe Kf;
+				Kf.Time = static_cast<float>((*KfObj)->GetNumberField(TEXT("time")));
+				if (TrackType == TEXT("float"))
+				{
+					Kf.Value = static_cast<float>((*KfObj)->GetNumberField(TEXT("value")));
+				}
+				else
+				{
+					// Vector: expect value as {x, y, z} or as a single number applied to all axes
+					const TSharedPtr<FJsonObject>* VecObj = nullptr;
+					if ((*KfObj)->TryGetObjectField(TEXT("value"), VecObj))
+					{
+						Kf.VecValue.X = static_cast<float>((*VecObj)->GetNumberField(TEXT("x")));
+						Kf.VecValue.Y = static_cast<float>((*VecObj)->GetNumberField(TEXT("y")));
+						Kf.VecValue.Z = static_cast<float>((*VecObj)->GetNumberField(TEXT("z")));
+					}
+					else
+					{
+						float V = static_cast<float>((*KfObj)->GetNumberField(TEXT("value")));
+						Kf.VecValue = FVector(V, V, V);
+					}
+				}
+				Keyframes.Add(Kf);
+			}
+		}
+	}
+
+	// Sort by time
+	Keyframes.Sort([](const FKeyframe& A, const FKeyframe& B) { return A.Time < B.Time; });
+
+	FString OutputPinName;
+
+	if (TrackType == TEXT("float"))
+	{
+		// Create an internal curve for the float track
+		FTTFloatTrack NewTrack;
+		NewTrack.SetTrackName(TrackFName, TimelineTemplate);
+
+		// Create the curve as an internal object on the TimelineTemplate
+		UCurveFloat* NewCurve = NewObject<UCurveFloat>(TimelineTemplate, *TrackName);
+		FRichCurve& RichCurve = NewCurve->FloatCurve;
+		for (const FKeyframe& Kf : Keyframes)
+		{
+			RichCurve.AddKey(Kf.Time, Kf.Value);
+		}
+		NewTrack.CurveFloat = NewCurve;
+
+		TimelineTemplate->FloatTracks.Add(NewTrack);
+		OutputPinName = TrackName;
+	}
+	else // vector
+	{
+		FTTVectorTrack NewTrack;
+		NewTrack.SetTrackName(TrackFName, TimelineTemplate);
+
+		UCurveVector* NewCurve = NewObject<UCurveVector>(TimelineTemplate, *TrackName);
+		for (const FKeyframe& Kf : Keyframes)
+		{
+			NewCurve->FloatCurves[0].AddKey(Kf.Time, Kf.VecValue.X);
+			NewCurve->FloatCurves[1].AddKey(Kf.Time, Kf.VecValue.Y);
+			NewCurve->FloatCurves[2].AddKey(Kf.Time, Kf.VecValue.Z);
+		}
+		NewTrack.CurveVector = NewCurve;
+
+		TimelineTemplate->VectorTracks.Add(NewTrack);
+		OutputPinName = TrackName;
+	}
+
+	// Reconstruct the timeline node to regenerate output pins
+	TimelineNode->ReconstructNode();
+
+	// Mark BP dirty, compile, save
+	FBlueprintEditorUtils::MarkBlueprintAsModified(BP);
+	FKismetEditorUtilities::CompileBlueprint(BP);
+	UEditorAssetLibrary::SaveAsset(AssetPath, false);
+
+	FString EscTrack = TrackName.Replace(TEXT("\""), TEXT("\\\""));
+	FString EscPin = OutputPinName.Replace(TEXT("\""), TEXT("\\\""));
+
+	UE_LOG(LogMyikaBridge, Log, TEXT("[Myika] add_timeline_track: Added %s track '%s' to timeline '%s' in '%s'"),
+		*TrackType, *TrackName, *TimelineNodeName, *AssetPath);
+
+	return FString::Printf(
+		TEXT("{\"ok\":true,\"result\":{\"success\":true,\"track_added\":\"%s\",\"output_pin_added\":\"%s\"}}"),
+		*EscTrack, *EscPin
+	);
+}
+
 FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const FString& ArgsJson)
 {
 	// C++ tool handlers — bypass Python for direct editor API access
@@ -543,6 +855,16 @@ FString FMyikaBridgeServer::DispatchToolRequest(const FString& ToolName, const F
 	if (ToolName == TEXT("connect_pins"))
 	{
 		return HandleConnectPins(ArgsJson);
+	}
+
+	if (ToolName == TEXT("set_pin_default"))
+	{
+		return HandleSetPinDefault(ArgsJson);
+	}
+
+	if (ToolName == TEXT("add_timeline_track"))
+	{
+		return HandleAddTimelineTrack(ArgsJson);
 	}
 
 	// Build the payload JSON that dispatch_json expects

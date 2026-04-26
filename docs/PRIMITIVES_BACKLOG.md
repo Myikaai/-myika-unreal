@@ -16,17 +16,13 @@ C++ component handling overlap detection + Enhanced Input action + optional door
 - `/MyikaBridge/Input/IMC_Myika` — InputMappingContext
 - Auto-registered by UMyikaInteractionComponent in BeginPlay
 
+### set_pin_default (Day 12)
+C++ tool handler to set pin default values by node name + pin name post-paste. Needed because `ReconstructNode` clobbers `DefaultValue` fields from generated T3D. Interface: `{asset_path, graph_name, node_name, pin_name, default_value}`. Returns `{success, set_value, previous_value}`.
+
+### add_timeline_track (Day 12)
+C++ tool handler to add float/vector tracks + keyframes to a `K2Node_Timeline` post-paste. Creates `UCurveFloat`/`UCurveVector` subobjects on `UTimelineTemplate`, then reconstructs the node to regenerate output pins. Interface: `{asset_path, timeline_node_name, track_name, track_type, keyframes: [{time, value}]}`. Returns `{success, track_added, output_pin_added}`.
+
 ## V1 Backlog
-
-### set_pin_default ⚡ HIGH PRIORITY — Day 12
-C++ tool handler to set pin default values by node name + pin name post-paste. Needed because `ReconstructNode` clobbers `DefaultValue` fields from generated T3D. Blocks any non-zero default values (e.g., RLerp B = `"0, 90, 0"` for door rotation). Interface: `{asset_path, graph_name, node_name, pin_name, default_value}`. Reference: `UEdGraphPin::DefaultValue`, `FBlueprintEditorUtils::PropagateNodePinDefaultValue`.
-
-Moved from Day 11 → Day 12: Day 11 was re-scoped to demo-readiness infrastructure (run journal, bridge reconnect, error toasts). This is a sequencing change, not a delay — without journal/recovery the demo is brittle even if the door scenario lands.
-
-### add_timeline_track ⚡ HIGH PRIORITY — Day 12
-C++ tool handler to add float/vector tracks + keyframes to a `K2Node_Timeline` post-paste. Timeline nodes paste structurally via T3D but `UTimelineTemplate` curve data doesn't carry — no float track output pins appear. Unlocks timeline-driven logic (door rotation, fade effects, etc.). Interface: `{asset_path, timeline_node_name, track_name, track_type, keyframes: [{time, value}]}`. Reference: `UTimelineTemplate`, UE engine source for timeline editor code (`Engine/Source/Editor/Kismet/...`).
-
-Moved from Day 11 → Day 12 (same reason as set_pin_default).
 
 ### read_bp_graph
 Mirror of paste_bp_nodes — export nodes from a Blueprint graph as T3D text using `FEdGraphUtilities::ExportNodesToText`. Enables reading graph logic, diffing, and round-tripping. Reference research: `docs/RESEARCH/blueprintue_plugin.md` (verdict: not useful — that plugin delegates to user Ctrl+C; engine source is the right reference).

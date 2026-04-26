@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * MCP Bridge Server - stdio transport
- * Exposes 6 UE tools to Claude Code CLI via MCP protocol.
+ * Exposes UE tools to Claude Code CLI via MCP protocol.
  * Routes tool calls to the Myika desktop app's tool proxy (TCP localhost:17646).
  */
 import { createConnection } from 'net';
@@ -128,6 +128,47 @@ const TOOLS = [
         }
       },
       required: ['asset_path', 'graph_name', 'connections']
+    }
+  },
+  {
+    name: 'set_pin_default',
+    description: 'Set a pin\'s default value on a Blueprint graph node by node name and pin name. Needed because ReconstructNode clobbers DefaultValue from T3D during paste.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Blueprint asset path, e.g. '/Game/Blueprints/BP_Door'" },
+        graph_name: { type: 'string', description: "Target graph name: 'EventGraph', 'ConstructionScript', or a function name" },
+        node_name: { type: 'string', description: "Node name, e.g. 'K2Node_CallFunction_0'" },
+        pin_name: { type: 'string', description: "Pin name, e.g. 'InString' or 'B'" },
+        default_value: { type: 'string', description: "Default value string, e.g. '0, 90, 0' for a rotator" }
+      },
+      required: ['asset_path', 'graph_name', 'node_name', 'pin_name', 'default_value']
+    }
+  },
+  {
+    name: 'add_timeline_track',
+    description: 'Add a float or vector track with keyframes to a K2Node_Timeline in a Blueprint. Timeline nodes paste structurally via T3D but curve data doesn\'t carry — this tool adds the track data programmatically.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        asset_path: { type: 'string', description: "Blueprint asset path, e.g. '/Game/Blueprints/BP_Door'" },
+        timeline_node_name: { type: 'string', description: "Timeline node name, e.g. 'K2Node_Timeline_0'" },
+        track_name: { type: 'string', description: "Name for the new track, e.g. 'Rotation'" },
+        track_type: { type: 'string', enum: ['float', 'vector'], description: "Track type: 'float' or 'vector'" },
+        keyframes: {
+          type: 'array',
+          description: 'Keyframes for the track curve',
+          items: {
+            type: 'object',
+            properties: {
+              time: { type: 'number', description: 'Time in seconds' },
+              value: { description: 'Float value for float tracks, or {x, y, z} object for vector tracks' }
+            },
+            required: ['time', 'value']
+          }
+        }
+      },
+      required: ['asset_path', 'timeline_node_name', 'track_name', 'track_type']
     }
   }
 ];
