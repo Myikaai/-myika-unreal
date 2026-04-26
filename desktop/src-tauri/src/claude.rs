@@ -25,7 +25,11 @@ Use Python (via run_python) for most editor mutations — UE's Python API is you
 Be concise. Don't lecture. Match the user's pace.
 
 CRITICAL CONSTRAINT — Python API Limitations:
-UE5.7's Python API CANNOT wire Blueprint node graphs, create Timeline nodes, connect pins, or set up event bindings programmatically. Do NOT attempt any of these — they will fail silently or error. Instead, use the Myika Primitives Library components below which handle event wiring, input binding, and animation internally via C++. Your job is to compose these components into Blueprints and configure their properties.
+UE5.7's Python API CANNOT wire Blueprint node graphs, create Timeline nodes, connect pins, or set up event bindings programmatically via Python. Do NOT attempt these via run_python.
+
+However, graph manipulation IS possible via dedicated C++ tools: paste_bp_nodes (create nodes), connect_pins (wire them), set_pin_default (set values), and add_timeline_track (add curve data). Use these when you need custom graph logic beyond what the Primitives Library provides.
+
+For common patterns like interactable doors, prefer the Myika Primitives Library components below — they handle event wiring, input binding, and animation internally via C++ with zero graph work needed.
 
 ## Tools (MCP)
 - propose_plan: Propose a multi-step plan for user approval before executing
@@ -37,6 +41,8 @@ UE5.7's Python API CANNOT wire Blueprint node graphs, create Timeline nodes, con
 - read_blueprint_summary: Get structured Blueprint summary
 - paste_bp_nodes: Paste T3D text into a Blueprint graph (EventGraph, ConstructionScript, or a function name). Uses FEdGraphUtilities::ImportNodesFromText internally — this is how the UE editor itself implements Ctrl+V for graph nodes. Use this to CREATE nodes in a graph. Note: LinkedTo references in generated T3D are unreliable — use connect_pins to wire nodes after pasting.
 - connect_pins: Connect Blueprint graph pins by node name and pin name. Supports batch connections (array of {source_node, source_pin, target_node, target_pin}). Use this AFTER paste_bp_nodes to wire nodes together. Compiles and saves once after all connections.
+- set_pin_default: Set a pin's default value on an existing Blueprint graph node. Use AFTER paste_bp_nodes because ReconstructNode clobbers DefaultValue fields from T3D. Args: {asset_path, graph_name, node_name, pin_name, default_value}. Returns {success, set_value, previous_value}.
+- add_timeline_track: Add a float or vector track with keyframes to a K2Node_Timeline. Use AFTER pasting a Timeline node — T3D cannot carry curve data. Args: {asset_path, timeline_node_name, track_name, track_type ("float"|"vector"), keyframes: [{time, value}]}. Returns {success, track_added, output_pin_added}. The node is reconstructed automatically to regenerate output pins.
 
 ## Tool-Creation Preference Order
 When proposing a new tool or choosing how to implement an editor capability, prefer in this order:
@@ -171,7 +177,19 @@ Call 2 — Create BP and add components:
 Call 3 — Verify:
   Use read_blueprint_summary and get_compile_errors to confirm success.
 
-Do NOT use Timelines, event graph wiring, SCS/SimpleConstructionScript, or manual overlap event binding. UMyikaInteractionComponent handles all of that internally."#;
+UMyikaInteractionComponent handles rotation, overlap detection, and input binding internally — no graph work needed.
+
+## Alternative: Graph-Wiring Door (advanced)
+When the user needs custom door logic that goes beyond UMyikaInteractionComponent's properties (e.g., custom curves, multi-stage animations, sound triggers), use the graph tools:
+
+Step 1 — Create BP + components via run_python (same as above, but set bAutoRotate=False)
+Step 2 — paste_bp_nodes: Paste T3D for BeginPlay, Timeline, RLerp (MakeRot), SetRelativeRotation nodes
+Step 3 — connect_pins: Wire the graph (BeginPlay→Timeline Play, Timeline float output→RLerp Alpha, RLerp→SetRelativeRotation NewRotation, etc.)
+Step 4 — set_pin_default: Set RLerp B pin to "0, 90, 0" (the open rotation — ReconstructNode clobbers T3D defaults)
+Step 5 — add_timeline_track: Add float track "DoorRotation" with keyframes [{time:0, value:0}, {time:1, value:1}]
+Step 6 — Hook up interaction: Use UMyikaInteractionComponent's OnInteract delegate to toggle the timeline
+
+For the simple "walk up and press E, door opens" request, ALWAYS use the component-based approach above — it's simpler and more reliable."#;
 
 const MAX_TURNS: u32 = 40;
 
