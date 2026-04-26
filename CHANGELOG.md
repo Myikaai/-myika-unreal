@@ -28,6 +28,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `.gitignore` now excludes `CLAUDE-DEV.md` defensively. The agent's runtime context lives in a separate private tree.
 - `connect_pins` and `set_pin_default` now list available input/output pin names when a pin lookup fails. Previously the agent had to introspect via `run_python` (which UE 5.7 does not support for K2Node pins), burning ~10 calls per failure.
 - `add_timeline_track` self-heals when the K2Node_Timeline is missing its `UTimelineTemplate` (the typical post-`paste_bp_nodes` failure mode): creates the template via `FBlueprintEditorUtils::AddNewTimeline`. Errors when the K2Node itself is missing now list the available timeline node names.
+- `connect_material_expressions` now lists the target expression's actual input pin names on failure (via `MaterialEditingLibrary.get_material_expression_input_names`) and explicitly notes that single-input nodes (Frac, Round, Sin, Cos, Abs, etc.) use the literal string `"None"` as their input pin name. Previously the agent burned ~7 calls on `run_python` introspection per failed connection.
+- `myika.dispatcher.reload_tools()` now also re-runs `_load_tools()` so newly-added tool modules get picked up without restarting UE. Previously adding a tool required full editor restart for the dispatcher to see it.
 - `policy.py` `ALL_TOOLS` was missing `set_pin_default` and `add_timeline_track` despite both being live C++ tools. Added them plus `list_node_pins`, `create_timeline`, and the four material tools. Strict profile now permits `list_node_pins` (read-only).
 
 ### Fixed

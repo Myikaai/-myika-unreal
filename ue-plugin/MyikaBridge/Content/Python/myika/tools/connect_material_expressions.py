@@ -65,10 +65,17 @@ def handle(args: dict) -> dict:
 
     ok = unreal.MaterialEditingLibrary.connect_material_expressions(src, from_pin, tgt, to_pin)
     if not ok:
+        try:
+            input_names = list(unreal.MaterialEditingLibrary.get_material_expression_input_names(tgt))
+        except Exception:
+            input_names = []
         raise RuntimeError(
             f"connect_material_expressions returned False for "
             f"{from_node}.{from_pin or '<default>'} -> {to_node}.{to_pin}. "
-            f"Likely cause: pin name {to_pin!r} doesn't exist on {tgt.get_class().get_name()}."
+            f"Pin {to_pin!r} doesn't exist on {tgt.get_class().get_name()}. "
+            f"Available inputs: {input_names}. "
+            f"Note: single-input expressions (Frac, Round, Sin, Cos, Abs, etc.) "
+            f"use the literal string \"None\" as their input pin name."
         )
 
     unreal.MaterialEditingLibrary.recompile_material(material)

@@ -106,7 +106,11 @@ def dispatch_json(payload_str: str) -> str:
 
 
 def reload_tools():
-    """Hot-reload all registered tool modules and refresh their handlers."""
+    """Hot-reload registered tool modules AND pick up any newly added tools.
+
+    Useful after dropping a new tool file into myika/tools/ — no UE restart
+    needed. Idempotent.
+    """
     reloaded = []
     for tool_name, _handler in list(TOOL_REGISTRY.items()):
         for mod_key, mod in list(sys.modules.items()):
@@ -119,7 +123,16 @@ def reload_tools():
                 except Exception as e:
                     print(f"[Myika] Failed to reload {tool_name}: {e}")
                 break
+
+    # Also pick up any new tools that have been dropped into _load_tools()
+    # since the dispatcher last booted.
+    before = set(TOOL_REGISTRY.keys())
+    _load_tools()
+    new_tools = sorted(set(TOOL_REGISTRY.keys()) - before)
+
     print(f"[Myika] Reloaded {len(reloaded)} tool(s): {', '.join(reloaded)}")
+    if new_tools:
+        print(f"[Myika] Newly registered: {', '.join(new_tools)}")
 
 
 def _load_tools():
