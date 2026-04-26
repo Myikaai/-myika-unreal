@@ -2,38 +2,519 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Myika Unreal — Design Tokens
+ *
+ * Values from docs/design/handoff/reference/figma-make-runnable/src/tokens.css
+ * Naming from docs/design/handoff/DESIGN_SYSTEM.md §10
+ * Conflict resolution per docs/design/handoff/README.md
+ */
+
 :root {
-  --bg-base: #0A0A0A;
-  --bg-surface: #141414;
-  --bg-elevated: #1E1E1E;
-  --text-primary: #E5E5E5;
-  --text-muted: #737373;
-  --accent: #00FF66;
-  --border: #262626;
+  /* ─────────────────────────────────────────────────────────────
+   * BACKGROUNDS — Layered depth system
+   * Cool-tinted HSL with decreasing saturation as lightness rises
+   * ───────────────────────────────────────────────────────────── */
+
+  --color-bg-base: hsl(240, 6%, 4%);
+  --color-bg-surface: hsl(240, 5%, 8.5%);
+  --color-bg-elevated: hsl(240, 4%, 12%);
+  --color-bg-raised: hsl(240, 3%, 15%);
+  --color-bg-overlay: hsla(240, 10%, 2%, 0.65);
+  --color-bg-accent-soft: hsla(142, 65%, 58%, 0.08);
+  --color-bg-accent-deep: hsl(142, 30%, 6%);
+  --color-bg-danger-soft: hsla(0, 85%, 70%, 0.08);
+
+  /* ─────────────────────────────────────────────────────────────
+   * BORDERS — Barely-there; depth from shadows, not lines
+   * ───────────────────────────────────────────────────────────── */
+
+  --color-border-subtle: hsla(0, 0%, 100%, 0.06);
+  --color-border-default: hsla(0, 0%, 100%, 0.09);
+  --color-border-strong: hsla(0, 0%, 100%, 0.14);
+  --color-border-accent: hsl(142, 65%, 58%);
+  --color-border-danger: hsl(0, 80%, 68%);
+
+  /* ─────────────────────────────────────────────────────────────
+   * TEXT
+   * ───────────────────────────────────────────────────────────── */
+
+  --color-text-primary: hsl(0, 0%, 92%);
+  --color-text-secondary: hsl(0, 0%, 64%);
+  --color-text-muted: hsl(0, 0%, 46%);
+  --color-text-disabled: hsl(0, 0%, 33%);
+  --color-text-on-accent: hsl(240, 6%, 4%);
+  --color-text-accent: hsl(142, 65%, 58%);
+  --color-text-danger: hsl(0, 80%, 68%);
+  --color-text-warning: hsl(38, 92%, 58%);
+
+  /* ─────────────────────────────────────────────────────────────
+   * ACCENT — Refined sage-phosphor green
+   * hue 142 (warmer than 120), sat 65%, lightness 58%
+   * ───────────────────────────────────────────────────────────── */
+
+  --color-accent-default: hsl(142, 65%, 58%);
+  --color-accent-glow: hsl(142, 68%, 64%);
+  --color-accent-active: hsl(142, 60%, 50%);
+  --color-accent-soft: hsla(142, 65%, 58%, 0.10);
+  --color-accent-deep: hsl(142, 30%, 6%);
+  --color-accent-ring: hsla(142, 65%, 58%, 0.30);
+  --color-accent-glow-edge: hsla(142, 65%, 58%, 0.20);
+
+  /* ─────────────────────────────────────────────────────────────
+   * STATUS
+   * ───────────────────────────────────────────────────────────── */
+
+  --color-success-default: hsl(142, 65%, 58%);
+  --color-success-soft: hsla(142, 65%, 58%, 0.10);
+  --color-warning-default: hsl(38, 92%, 58%);
+  --color-warning-soft: hsla(38, 92%, 58%, 0.10);
+  --color-danger-default: hsl(0, 80%, 68%);
+  --color-danger-hover: hsl(0, 85%, 74%);
+  --color-danger-soft: hsla(0, 80%, 68%, 0.10);
+  --color-info-default: hsl(213, 85%, 68%);
+  --color-neutral-default: hsl(0, 0%, 64%);
+
+  /* ─────────────────────────────────────────────────────────────
+   * SYNTAX HIGHLIGHTING
+   * ───────────────────────────────────────────────────────────── */
+
+  --color-syntax-plain: hsl(0, 0%, 90%);
+  --color-syntax-keyword: hsl(270, 65%, 70%);
+  --color-syntax-string: hsl(142, 60%, 72%);
+  --color-syntax-number: hsl(38, 92%, 58%);
+  --color-syntax-comment: hsl(0, 0%, 46%);
+  --color-syntax-function: hsl(213, 85%, 68%);
+  --color-syntax-property: hsl(174, 65%, 68%);
+
+  /* ─────────────────────────────────────────────────────────────
+   * TYPOGRAPHY
+   * ───────────────────────────────────────────────────────────── */
+
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ─────────────────────────────────────────────────────────────
+   * SPACING — 4px base scale
+   * ───────────────────────────────────────────────────────────── */
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ─────────────────────────────────────────────────────────────
+   * RADIUS
+   * ───────────────────────────────────────────────────────────── */
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-full: 9999px;
+
+  /* ─────────────────────────────────────────────────────────────
+   * SHADOWS — Multi-layer ambient + directional
+   * Two-layer mimics real light. Alphas tuned for dark backgrounds.
+   * ───────────────────────────────────────────────────────────── */
+
+  --shadow-sm:
+    0 1px 2px hsla(0, 0%, 0%, 0.35);
+
+  --shadow-md:
+    0 1px 2px hsla(0, 0%, 0%, 0.40),
+    0 4px 12px hsla(0, 0%, 0%, 0.45);
+
+  --shadow-lg:
+    0 2px 4px hsla(0, 0%, 0%, 0.45),
+    0 12px 32px hsla(0, 0%, 0%, 0.55),
+    0 0 0 1px hsla(0, 0%, 100%, 0.04);
+
+  --shadow-xl:
+    0 4px 8px hsla(0, 0%, 0%, 0.50),
+    0 16px 48px hsla(0, 0%, 0%, 0.60),
+    0 0 0 1px hsla(0, 0%, 100%, 0.05);
+
+  --shadow-inset:
+    inset 0 1px 3px hsla(0, 0%, 0%, 0.50);
+
+  --shadow-glow-accent:
+    0 0 0 3px var(--color-accent-ring);
+
+  --shadow-glow-directional:
+    0 2px 8px hsla(142, 65%, 58%, 0.25);
+
+  /* ─────────────────────────────────────────────────────────────
+   * MOTION — Perceptual-threshold timings, not round numbers
+   * ───────────────────────────────────────────────────────────── */
+
+  --duration-instant: 0ms;
+  --duration-fast: 100ms;
+  --duration-default: 180ms;
+  --duration-slow: 280ms;
+  --duration-pulse: 2000ms;
+  --duration-typing: 1300ms;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-linear: linear;
+
+  /* ─────────────────────────────────────────────────────────────
+   * BACKWARD-COMPAT ALIASES
+   * Components still reference old variable names. These map to
+   * the new token system. Remove as components are migrated.
+   * ───────────────────────────────────────────────────────────── */
+
+  --bg-base: var(--color-bg-base);
+  --bg-surface: var(--color-bg-surface);
+  --bg-elevated: var(--color-bg-elevated);
+  --text-primary: var(--color-text-primary);
+  --text-muted: var(--color-text-secondary);
+  --accent: var(--color-accent-default);
+  --border: var(--color-border-default);
 }
 
-* {
-  margin: 0;
-  padding: 0;
+/* ─────────────────────────────────────────────────────────────
+ * BASE RESETS
+ * ───────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
   box-sizing: border-box;
 }
 
-body {
-  background-color: var(--bg-base);
-  color: var(--text-primary);
-  font-family: Inter, system-ui, sans-serif;
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-ui);
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
+code, pre {
+  font-family: var(--font-mono);
 }
 
-::-webkit-scrollbar-track {
-  background: var(--bg-surface);
+/* ─────────────────────────────────────────────────────────────
+ * SCROLLBARS
+ * ───────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+  background: hsla(0, 0%, 100%, 0.08);
+  border-radius: var(--radius-md);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsla(0, 0%, 100%, 0.14);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * REDUCED MOTION — Phase 6 will add component-specific overrides
+ * ───────────────────────────────────────────────────────────── */
+
+/* ─────────────────────────────────────────────────────────────
+ * SIGNATURE: Bridge Indicator — The heartbeat
+ * ───────────────────────────────────────────────────────────── */
+
+.bridge-indicator {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+.bridge-indicator__core {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  z-index: 2;
+}
+
+.bridge-indicator--idle .bridge-indicator__core,
+.bridge-indicator--active .bridge-indicator__core {
+  background: var(--color-accent-default);
+}
+
+.bridge-indicator--disconnected .bridge-indicator__core {
+  background: var(--color-danger-default);
+}
+
+.bridge-indicator__ring {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-default);
+  z-index: 1;
+}
+
+.bridge-indicator--idle .bridge-indicator__ring {
+  animation: bridgePulse var(--duration-pulse) ease-in-out infinite;
+}
+
+.bridge-indicator--active .bridge-indicator__ring {
+  animation: bridgePulse 1000ms ease-in-out infinite;
+}
+
+@keyframes bridgePulse {
+  0% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.3); opacity: 0.2; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * SIGNATURE: Approve Button — Directional bottom-edge glow
+ * ───────────────────────────────────────────────────────────── */
+
+.approve-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-4);
+  background: var(--color-accent-default);
+  color: var(--color-text-on-accent);
+  border: 1px solid var(--color-accent-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  box-shadow:
+    inset 0 -1px 2px hsla(0, 0%, 0%, 0.15),
+    var(--shadow-md),
+    var(--shadow-glow-directional);
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.approve-button:hover:not(:disabled) {
+  background: var(--color-accent-glow);
+  border-color: var(--color-accent-glow);
+  box-shadow:
+    inset 0 -1px 2px hsla(0, 0%, 0%, 0.15),
+    var(--shadow-md),
+    0 3px 12px hsla(142, 65%, 58%, 0.35);
+}
+
+.approve-button:active:not(:disabled) {
+  transform: scale(0.98);
+  background: var(--color-accent-active);
+  border-color: var(--color-accent-active);
+  box-shadow:
+    inset 0 1px 3px hsla(0, 0%, 0%, 0.30),
+    var(--shadow-sm);
+}
+
+.approve-button:disabled {
+  background: var(--color-bg-raised);
+  color: var(--color-text-disabled);
+  border-color: transparent;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.approve-button:focus-visible {
+  outline: 2px solid var(--color-accent-ring);
+  outline-offset: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * SIGNATURE: Tool Chip — Scanline + progress bar
+ * ───────────────────────────────────────────────────────────── */
+
+.tool-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+
+.tool-chip__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.tool-chip--done .tool-chip__dot { background: var(--color-accent-default); }
+.tool-chip--running .tool-chip__dot { background: var(--color-warning-default); }
+.tool-chip--error .tool-chip__dot { background: var(--color-danger-default); }
+
+.tool-chip--done { border-left: 2px solid var(--color-accent-default); }
+
+.tool-chip__scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent 0%, hsla(0, 0%, 100%, 0.06) 50%, transparent 100%);
+  animation: toolScanline 1500ms linear infinite;
+  z-index: 1;
+  pointer-events: none;
+}
+
+@keyframes toolScanline {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.tool-chip__progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  width: 30%;
+  background: var(--color-accent-default);
+  animation: toolProgress 1400ms ease-in-out infinite;
+  z-index: 3;
+}
+
+@keyframes toolProgress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(333%); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * SIGNATURE: Streaming Text — Per-word fade-in
+ * ───────────────────────────────────────────────────────────── */
+
+.streaming-text__word--recent {
+  opacity: 0.8;
+  animation: fadeInWord 80ms var(--ease-out);
+}
+
+.streaming-text__word--newest {
+  opacity: 0.6;
+  animation: fadeInWord 80ms var(--ease-out);
+}
+
+@keyframes fadeInWord {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 1.5px;
+  height: 1em;
+  vertical-align: text-bottom;
+  background: var(--color-accent-default);
+  margin-left: 2px;
+  animation: cursorBlink 1000ms steps(2) infinite;
+}
+
+@keyframes cursorBlink {
+  50% { opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * MODAL — Entry/exit animations
+ * Backdrop: blur(2px) fades in 200ms
+ * Modal: slides up 4px + fades in 220ms ease-out, 30ms after backdrop
+ * ───────────────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  animation: backdropEnter 200ms var(--ease-out) both;
+  backdrop-filter: blur(2px);
+}
+
+.modal-panel {
+  animation: modalEnter 220ms var(--ease-out) 30ms both;
+}
+
+@keyframes backdropEnter {
+  from { opacity: 0; backdrop-filter: blur(0px); }
+  to { opacity: 1; backdrop-filter: blur(2px); }
+}
+
+@keyframes modalEnter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * REDUCED MOTION
+ * ───────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  /* Bridge pulse becomes static — hold at 0.85 opacity */
+  .bridge-indicator__ring {
+    animation: none !important;
+    opacity: 0.85;
+    transform: scale(1.2);
+  }
+
+  /* Streaming text appears instantly */
+  .streaming-text__word--newest,
+  .streaming-text__word--recent {
+    opacity: 1 !important;
+    animation: none !important;
+  }
+
+  /* Scanline disappears, progress bar static */
+  .tool-chip__scanline {
+    display: none !important;
+  }
+  .tool-chip__progress {
+    animation: none !important;
+    transform: scaleX(1);
+  }
+
+  /* Modal appears instantly (no slide) */
+  .modal-backdrop,
+  .modal-panel {
+    animation: none !important;
+    opacity: 1;
+  }
+
+  /* Cursor stays visible instead of blinking */
+  .streaming-cursor {
+    animation: none !important;
+    opacity: 1;
+  }
 }

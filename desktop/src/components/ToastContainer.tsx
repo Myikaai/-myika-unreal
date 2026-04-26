@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { type AppError, onAppError } from "../lib/ipc";
+import Icon from "./Icon";
 
 interface Toast extends AppError {
   id: number;
@@ -34,24 +35,26 @@ export default function ToastContainer() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="bg-red-900/90 border border-red-700 rounded-lg px-4 py-3 text-sm shadow-lg"
+          className="bg-[var(--color-bg-elevated)] border border-[var(--color-border-danger)] rounded-lg px-4 py-3 text-sm shadow-lg"
         >
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
-              <div className="font-mono text-red-300 text-xs mb-1">{toast.code}</div>
-              <div className="text-red-100">{toast.message}</div>
+              <div className="font-mono text-[var(--color-danger-default)] text-xs mb-1">{toast.code}</div>
+              <div className="text-primary">{toast.message}</div>
             </div>
             <button
               onClick={() => dismiss(toast.id)}
-              className="text-red-400 hover:text-red-200 text-lg leading-none flex-shrink-0"
+              className="text-[var(--color-danger-default)] hover:text-[var(--color-danger-hover)] text-lg leading-none flex-shrink-0 rounded p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
+              style={{ transitionDuration: "var(--duration-fast)" }}
             >
-              &#x2715;
+              <Icon name="deny" size={16} />
             </button>
           </div>
           <div className="mt-2">
             <button
               onClick={() => copyDetails(toast)}
-              className="text-xs px-2 py-1 border border-red-700 rounded text-red-300 hover:bg-red-800/50 transition-colors"
+              className="text-xs px-2 py-1 border border-[var(--color-border-danger)] rounded text-[var(--color-danger-default)] hover:bg-[var(--color-bg-danger-soft)] active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
+              style={{ transitionDuration: "var(--duration-fast)" }}
             >
               Copy details
             </button>

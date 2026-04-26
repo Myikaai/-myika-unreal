@@ -9,8 +9,8 @@ export default function Message({ role, content }: MessageProps) {
       <div
         className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
           role === "user"
-            ? "bg-[var(--accent)] text-black"
-            : "bg-[var(--bg-elevated)] text-primary"
+            ? "bg-[var(--color-accent-default)] text-[var(--color-text-on-accent)]"
+            : "bg-[var(--color-bg-elevated)] text-primary"
         }`}
       >
         {content}

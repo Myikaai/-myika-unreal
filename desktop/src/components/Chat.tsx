@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { sendMessage, clearChat, onChatEvent, resolvePlan, type ChatEvent } from "../lib/ipc";
 import PlanReview from "./PlanReview";
+import Icon from "./Icon";
 
 type ChatPhase = "idle" | "planning" | "awaiting_approval" | "executing" | "done";
 
@@ -242,8 +243,8 @@ export default function Chat() {
                 ) : (
                   <div className={`border rounded px-3 py-2 text-sm ${
                     msg.planStatus === "approved"
-                      ? "border-green-700 bg-green-900/20 text-green-400"
-                      : "border-red-700 bg-red-900/20 text-red-400"
+                      ? "border-[var(--color-border-accent)] bg-[var(--color-bg-accent-soft)] text-[var(--color-text-accent)]"
+                      : "border-[var(--color-border-danger)] bg-[var(--color-bg-danger-soft)] text-[var(--color-text-danger)]"
                   }`}>
                     {msg.planStatus === "approved" ? "Plan approved — executing..." : "Plan cancelled"}
                   </div>
@@ -253,12 +254,15 @@ export default function Chat() {
               <div
                 className={`max-w-[80%] px-3 py-2 rounded text-sm whitespace-pre-wrap ${
                   msg.role === "user"
-                    ? "bg-[var(--accent)] text-black"
-                    : "bg-[var(--bg-elevated)] text-primary"
+                    ? "bg-[var(--color-accent-default)] text-[var(--color-text-on-accent)]"
+                    : "bg-[var(--color-bg-elevated)] text-primary"
                 }`}
               >
-                {msg.content}
-                {msg.isStreaming && <span className="inline-block w-1.5 h-4 bg-[var(--accent)] ml-0.5 animate-pulse" />}
+                {msg.role === "assistant" && msg.isStreaming ? (
+                  <StreamingText text={msg.content} />
+                ) : (
+                  msg.content
+                )}
               </div>
             )}
           </div>
@@ -266,7 +270,7 @@ export default function Chat() {
 
         {isLoading && messages[messages.length - 1]?.role !== "assistant" && chatPhase !== "awaiting_approval" && (
           <div className="flex justify-start">
-            <div className="bg-[var(--bg-elevated)] text-muted px-3 py-2 rounded text-sm">
+            <div className="bg-[var(--color-bg-elevated)] text-secondary px-3 py-2 rounded text-sm">
               <span className="animate-pulse">
                 {chatPhase === "executing" ? "Executing plan..." : "Thinking..."}
               </span>
@@ -277,14 +281,19 @@ export default function Chat() {
 
       {/* Error banner */}
       {error && (
-        <div className="mx-3 mb-1 px-3 py-2 bg-red-900/40 border border-red-700 rounded text-red-300 text-xs flex items-center justify-between">
+        <div className="mx-3 mb-1 px-3 py-2 bg-[var(--color-bg-danger-soft)] border border-[var(--color-border-danger)] rounded text-[var(--color-text-danger)] text-xs flex items-center justify-between">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200 ml-2">&#x2715;</button>
+          <button
+            onClick={() => setError(null)}
+            className="text-[var(--color-danger-default)] hover:text-[var(--color-danger-hover)] ml-2 rounded p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
+          >
+            <Icon name="deny" size={16} />
+          </button>
         </div>
       )}
 
       {/* Composer */}
-      <div className="p-3 border-t border-[var(--border)]">
+      <div className="p-3 border-t border-[var(--color-border-subtle)]">
         <div className="flex gap-2">
           <input
             type="text"
@@ -293,12 +302,14 @@ export default function Chat() {
             onKeyDown={handleKeyDown}
             placeholder="Ask Myika..."
             disabled={isLoading}
-            className="flex-1 bg-[var(--bg-elevated)] text-primary text-sm rounded px-3 py-2 border border-[var(--border)] focus:border-[var(--accent)] focus:outline-none placeholder:text-muted disabled:opacity-50"
+            className="flex-1 bg-[var(--color-bg-elevated)] text-primary text-sm rounded px-3 py-2 border border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-border-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)] placeholder:text-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{ transitionDuration: "var(--duration-fast)" }}
           />
           <button
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
-            className="px-4 py-2 bg-[var(--accent)] text-black text-sm font-medium rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="px-4 py-2 bg-[var(--color-accent-default)] text-[var(--color-text-on-accent)] text-sm font-medium rounded hover:bg-[var(--color-accent-glow)] active:bg-[var(--color-accent-active)] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
+            style={{ transitionDuration: "var(--duration-fast)" }}
           >
             Send
           </button>
@@ -306,7 +317,8 @@ export default function Chat() {
             <button
               onClick={handleClear}
               disabled={isLoading}
-              className="px-3 py-2 text-muted hover:text-primary text-sm border border-[var(--border)] rounded disabled:opacity-50"
+              className="px-3 py-2 text-secondary hover:text-primary text-sm border border-[var(--color-border-default)] rounded hover:border-[var(--color-border-strong)] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
+              style={{ transitionDuration: "var(--duration-fast)" }}
               title="Clear chat"
             >
               Clear
@@ -320,32 +332,42 @@ export default function Chat() {
 
 function ToolCard({ name, args, content, result, isError }: { name: string; args?: string; content: string; result?: string; isError?: boolean }) {
   const [expanded, setExpanded] = useState(false);
-
-  const borderClass = isError ? "border-red-700" : "border-[var(--border)]";
-  const nameClass = isError ? "text-red-400" : "text-[var(--accent)]";
-  const statusClass = isError ? "text-red-400" : "text-muted";
+  const isRunning = !result && !isError;
+  const chipStatus = isError ? "error" : isRunning ? "running" : "done";
 
   return (
-    <div className={`max-w-[80%] border ${borderClass} rounded bg-[var(--bg-surface)] text-sm overflow-hidden`}>
+    <div className="max-w-[80%]">
+      {/* Chip header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-[var(--bg-elevated)] transition-colors text-left"
+        className={`tool-chip tool-chip--${chipStatus} w-full text-left cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]`}
+        style={{ transitionDuration: "var(--duration-fast)", padding: "6px 8px" }}
       >
-        <span className="text-xs text-muted">{expanded ? "▼" : "▶"}</span>
-        <span className={`font-mono ${nameClass} text-xs`}>{name}</span>
-        <span className={`${statusClass} text-xs ml-auto`}>{content}</span>
+        <span className="tool-chip__dot" />
+        <span className="relative z-[2] flex-1 truncate">{name}</span>
+        <span className={`relative z-[2] text-xs ml-auto flex-shrink-0 ${isError ? "text-[var(--color-text-danger)]" : "text-secondary"}`}>
+          {content}
+        </span>
+        {isRunning && (
+          <>
+            <div className="tool-chip__scanline" />
+            <div className="tool-chip__progress" />
+          </>
+        )}
       </button>
+
+      {/* Expanded details */}
       {expanded && (
-        <div className="px-3 py-2 border-t border-[var(--border)] bg-[var(--bg-base)]">
+        <div className="px-3 py-2 border border-t-0 border-[var(--color-border-subtle)] rounded-b bg-[var(--color-bg-base)] text-xs font-mono">
           {args && (
-            <pre className="text-xs text-muted font-mono whitespace-pre-wrap overflow-x-auto mb-2">
+            <pre className="text-secondary whitespace-pre-wrap overflow-x-auto mb-2">
               {(() => {
                 try { return JSON.stringify(JSON.parse(args), null, 2); } catch { return args; }
               })()}
             </pre>
           )}
           {result && (
-            <pre className={`text-xs font-mono whitespace-pre-wrap overflow-x-auto ${isError ? "text-red-300" : "text-muted"}`}>
+            <pre className={`whitespace-pre-wrap overflow-x-auto ${isError ? "text-[var(--color-text-danger)]" : "text-secondary"}`}>
               {(() => {
                 try { return JSON.stringify(JSON.parse(result), null, 2); } catch { return result; }
               })()}
@@ -354,5 +376,28 @@ function ToolCard({ name, args, content, result, isError }: { name: string; args
         </div>
       )}
     </div>
+  );
+}
+
+function StreamingText({ text }: { text: string }) {
+  const words = text.split(" ");
+  const total = words.length;
+
+  return (
+    <span>
+      {words.map((word, i) => {
+        const cls = i === total - 1
+          ? "streaming-text__word--newest"
+          : i === total - 2
+            ? "streaming-text__word--recent"
+            : "";
+        return (
+          <span key={i} className={cls}>
+            {word}{" "}
+          </span>
+        );
+      })}
+      <span className="streaming-cursor" />
+    </span>
   );
 }
