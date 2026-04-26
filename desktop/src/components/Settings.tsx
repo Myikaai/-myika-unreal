@@ -41,7 +41,7 @@ export default function Settings({ onClose }: SettingsProps) {
           <button
             onClick={onClose}
             className="text-secondary hover:text-primary rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
-            style={{ transitionDuration: "var(--duration-fast)" }}
+            style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
           >
             <Icon name="deny" size={16} />
           </button>
@@ -54,7 +54,7 @@ export default function Settings({ onClose }: SettingsProps) {
               value={settings.provider}
               onChange={(e) => setSettings({ ...settings, provider: e.target.value })}
               className={inputClass}
-              style={{ transitionDuration: "var(--duration-fast)" }}
+              style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
             >
               <option value="claude-code">Claude Code (uses your subscription)</option>
             </select>
@@ -67,7 +67,7 @@ export default function Settings({ onClose }: SettingsProps) {
               value={settings.model}
               onChange={(e) => setSettings({ ...settings, model: e.target.value })}
               className={inputClass}
-              style={{ transitionDuration: "var(--duration-fast)" }}
+              style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
             >
               <option value="sonnet">Claude Sonnet (fast)</option>
               <option value="opus">Claude Opus (deep thinking)</option>
@@ -81,7 +81,7 @@ export default function Settings({ onClose }: SettingsProps) {
               value={settings.bridge_port}
               onChange={(e) => setSettings({ ...settings, bridge_port: parseInt(e.target.value) || 17645 })}
               className={inputClass}
-              style={{ transitionDuration: "var(--duration-fast)" }}
+              style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
             />
           </div>
         </div>
@@ -91,7 +91,7 @@ export default function Settings({ onClose }: SettingsProps) {
             onClick={handleSave}
             disabled={saving}
             className="px-4 py-2 bg-[var(--color-accent-default)] text-[var(--color-text-on-accent)] text-sm font-medium rounded hover:bg-[var(--color-accent-glow)] active:bg-[var(--color-accent-active)] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
-            style={{ transitionDuration: "var(--duration-fast)" }}
+            style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
           >
             {saving ? "Saving..." : "Done"}
           </button>

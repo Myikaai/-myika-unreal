@@ -45,7 +45,7 @@ export default function ToastContainer() {
             <button
               onClick={() => dismiss(toast.id)}
               className="text-[var(--color-danger-default)] hover:text-[var(--color-danger-hover)] text-lg leading-none flex-shrink-0 rounded p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
-              style={{ transitionDuration: "var(--duration-fast)" }}
+              style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
             >
               <Icon name="deny" size={16} />
             </button>
@@ -54,7 +54,7 @@ export default function ToastContainer() {
             <button
               onClick={() => copyDetails(toast)}
               className="text-xs px-2 py-1 border border-[var(--color-border-danger)] rounded text-[var(--color-danger-default)] hover:bg-[var(--color-bg-danger-soft)] active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
-              style={{ transitionDuration: "var(--duration-fast)" }}
+              style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
             >
               Copy details
             </button>

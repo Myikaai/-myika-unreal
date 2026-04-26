@@ -160,7 +160,11 @@ await test('get_compile_errors: returns quickly', async () => {
 await test('read_blueprint_summary: valid BP', async () => {
   const r = await call('read_blueprint_summary', { asset_path: '/Game/ThirdPerson/Blueprints/BP_ThirdPersonCharacter' });
   assert(r.ok, `Expected ok, got error: ${r.error?.message}`);
-  assert(r.result.parent_class === 'Character', `Expected parent_class=Character, got ${r.result.parent_class}`);
+  // BP_ThirdPersonCharacter inherits from the project's C++ class AMyika_pluginCharacter, not
+  // unreal.Character — confirmed via AssetRegistry ParentClass tag. The previous 'Character'
+  // assertion matched the OLD broken handler that walked the Python proxy hierarchy.
+  assert(r.result.parent_class === 'myika_pluginCharacter',
+    `Expected parent_class=myika_pluginCharacter, got ${r.result.parent_class}`);
   assert(r.result.components.length >= 5, `Expected >=5 components, got ${r.result.components.length}`);
   assert(r.result.functions.length > 0, 'Expected at least 1 function');
 });
@@ -174,6 +178,73 @@ await test('read_blueprint_summary: non-BP asset graceful', async () => {
 await test('read_blueprint_summary: missing asset rejected', async () => {
   const r = await call('read_blueprint_summary', { asset_path: '/Game/Nope/DoesNotExist' });
   assert(!r.ok, 'Expected error for missing asset');
+});
+
+// Day 12 fix: read_blueprint_summary must report parent_class and components correctly
+// for Blueprints constructed via the agent's path (Actor parent + SubobjectDataSubsystem).
+// Pre-fix evidence (journal 2026-04-26T01:29 / 01:44): parent_class="Object", components=[].
+await test('read_blueprint_summary: SubobjectData-built BP reports parent_class and components', async () => {
+  await deleteTestBP();
+  const setup = await call('run_python', { code: `
+import unreal
+
+asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+factory = unreal.BlueprintFactory()
+factory.set_editor_property("ParentClass", unreal.Actor)
+bp = asset_tools.create_asset("__StressTest_Temp", "/Game", unreal.Blueprint, factory)
+if bp is None:
+    raise RuntimeError("Failed to create test BP")
+
+ss = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+handles = ss.k2_gather_subobject_data_for_blueprint(bp)
+root = handles[0]
+
+p1 = unreal.AddNewSubobjectParams()
+p1.set_editor_property("parent_handle", root)
+p1.set_editor_property("new_class", unreal.StaticMeshComponent)
+p1.set_editor_property("blueprint_context", bp)
+ss.add_new_subobject(p1)
+
+p2 = unreal.AddNewSubobjectParams()
+p2.set_editor_property("parent_handle", root)
+p2.set_editor_property("new_class", unreal.MyikaInteractionComponent)
+p2.set_editor_property("blueprint_context", bp)
+ss.add_new_subobject(p2)
+
+unreal.BlueprintEditorLibrary.compile_blueprint(bp)
+unreal.EditorAssetLibrary.save_asset("${TEST_BP_PATH}")
+print("created")
+` });
+  assert(setup.ok && setup.result.stdout.includes('created'),
+    `Setup failed: ${setup.error?.message || setup.result?.stdout}`);
+
+  try {
+    const r = await call('read_blueprint_summary', { asset_path: TEST_BP_PATH });
+    assert(r.ok, `Bridge error: ${r.error?.message}`);
+
+    // parent_class — must be 'Actor' (was returning "Object" pre-fix because
+    // the implementation walked the Python proxy class hierarchy, not UBlueprint::ParentClass).
+    assert(r.result.parent_class === 'Actor',
+      `Expected parent_class='Actor', got '${r.result.parent_class}'`);
+
+    // components — must contain BOTH classes by name (was returning [] pre-fix because
+    // get_components_by_class on the CDO does not see SCS-added templates).
+    const classes = r.result.components.map(c => c.class);
+    assert(classes.includes('StaticMeshComponent'),
+      `Expected StaticMeshComponent in components, got: ${JSON.stringify(classes)}`);
+    assert(classes.includes('MyikaInteractionComponent'),
+      `Expected MyikaInteractionComponent in components, got: ${JSON.stringify(classes)}`);
+
+    // Each component entry must carry both name and class fields.
+    for (const c of r.result.components) {
+      assert(typeof c.name === 'string' && c.name.length > 0,
+        `Component missing name: ${JSON.stringify(c)}`);
+      assert(typeof c.class === 'string' && c.class.length > 0,
+        `Component missing class: ${JSON.stringify(c)}`);
+    }
+  } finally {
+    await deleteTestBP();
+  }
 });
 
 // ── paste_bp_nodes ──

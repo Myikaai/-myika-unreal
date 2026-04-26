@@ -26,29 +26,52 @@ def handle(args: dict) -> dict:
         result["warnings"].append("No generated class found — asset may not be a Blueprint")
         return result
 
+    # --- Parent class ---
+    # Read via AssetRegistry tag. UBlueprint::ParentClass is marked `protected` in C++, so
+    # bp.get_editor_property("ParentClass") raises; UBlueprint Python wrapper does not expose
+    # parent_class as an attribute; BlueprintGeneratedClass Python wrapper has no
+    # get_super_class(). The AssetRegistry "ParentClass" tag is the reliable path
+    # (also used by the editor's class-picker UI).
+    try:
+        ar = unreal.AssetRegistryHelpers.get_asset_registry()
+        object_path = asset_path + "." + asset_path.rsplit("/", 1)[-1]
+        asset_data = ar.get_asset_by_object_path(object_path)
+        tag_val = asset_data.get_tag_value("ParentClass") if asset_data is not None else None
+        # Tag format: "/Script/CoreUObject.Class'/Script/Engine.Actor'"
+        # We want just the trailing class name ("Actor").
+        if tag_val:
+            inner = tag_val.split("'", 2)[1] if "'" in tag_val else tag_val
+            result["parent_class"] = inner.rsplit(".", 1)[-1]
+        else:
+            result["warnings"].append("AssetRegistry ParentClass tag missing or empty")
+    except Exception as e:
+        result["warnings"].append(f"AssetRegistry parent_class lookup raised: {e}")
+
+    # --- Components ---
+    # Walk SubobjectData (the same path the agent uses to add components).
+    # Previous impl called cdo.get_components_by_class, which only sees native UPROPERTY
+    # default components on the parent class — SCS-added templates are invisible to the CDO.
+    try:
+        ss = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
+        handles = ss.k2_gather_subobject_data_for_blueprint(bp)
+        for h in handles:
+            data = ss.k2_find_subobject_data_from_handle(h)
+            if data is None:
+                continue
+            obj = unreal.SubobjectDataBlueprintFunctionLibrary.get_object(data, False)
+            if obj is None or not isinstance(obj, unreal.ActorComponent):
+                continue
+            result["components"].append({
+                "name": obj.get_name(),
+                "class": obj.get_class().get_name(),
+            })
+    except Exception as e:
+        result["warnings"].append(f"Could not enumerate components: {e}")
+
     cdo = unreal.get_default_object(gc)
     if cdo is None:
         result["warnings"].append("Could not get class default object")
         return result
-
-    # --- Parent class ---
-    try:
-        parent_type = type(cdo).__bases__[0] if type(cdo).__bases__ else None
-        if parent_type:
-            result["parent_class"] = parent_type.__name__
-    except Exception as e:
-        result["warnings"].append(f"Could not determine parent class: {e}")
-
-    # --- Components ---
-    try:
-        comps = cdo.get_components_by_class(unreal.ActorComponent)
-        for comp in comps:
-            result["components"].append({
-                "name": comp.get_name(),
-                "class": comp.get_class().get_name(),
-            })
-    except Exception as e:
-        result["warnings"].append(f"Could not enumerate components: {e}")
 
     # --- Variables & Functions ---
     # BP-defined attrs = attrs on CDO that aren't on the native parent class

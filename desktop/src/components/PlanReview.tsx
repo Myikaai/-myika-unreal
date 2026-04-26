@@ -22,7 +22,7 @@ export default function PlanReview({ steps, summary, onApprove, onCancel }: Plan
         <button
           onClick={onCancel}
           className="px-4 py-1.5 bg-[var(--color-bg-surface)] text-secondary text-sm rounded border border-[var(--color-border-default)] hover:text-primary hover:border-[var(--color-border-strong)] active:scale-[0.98] transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
-          style={{ transitionDuration: "var(--duration-fast)" }}
+          style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
         >
           Cancel
         </button>

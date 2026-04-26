@@ -270,10 +270,13 @@ export default function Chat() {
 
         {isLoading && messages[messages.length - 1]?.role !== "assistant" && chatPhase !== "awaiting_approval" && (
           <div className="flex justify-start">
-            <div className="bg-[var(--color-bg-elevated)] text-secondary px-3 py-2 rounded text-sm">
-              <span className="animate-pulse">
-                {chatPhase === "executing" ? "Executing plan..." : "Thinking..."}
+            <div className="thinking-indicator bg-[var(--color-bg-elevated)] text-secondary px-3 py-2 rounded text-sm flex items-center gap-2">
+              <span className="thinking-indicator__dots">
+                <span className="thinking-indicator__dot" />
+                <span className="thinking-indicator__dot" />
+                <span className="thinking-indicator__dot" />
               </span>
+              <span>{chatPhase === "executing" ? "Executing plan..." : "Thinking..."}</span>
             </div>
           </div>
         )}
@@ -302,14 +305,14 @@ export default function Chat() {
             onKeyDown={handleKeyDown}
             placeholder="Ask Myika..."
             disabled={isLoading}
-            className="flex-1 bg-[var(--color-bg-elevated)] text-primary text-sm rounded px-3 py-2 border border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-border-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)] placeholder:text-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ transitionDuration: "var(--duration-fast)" }}
+            className="flex-1 bg-[var(--color-bg-elevated)] text-primary text-sm rounded px-3 py-2 border border-[var(--color-border-default)] hover:border-[var(--color-border-strong)] focus:border-[var(--color-border-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)] placeholder:text-muted disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ transition: "all var(--duration-default) var(--ease-out)" }}
           />
           <button
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
             className="px-4 py-2 bg-[var(--color-accent-default)] text-[var(--color-text-on-accent)] text-sm font-medium rounded hover:bg-[var(--color-accent-glow)] active:bg-[var(--color-accent-active)] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
-            style={{ transitionDuration: "var(--duration-fast)" }}
+            style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
           >
             Send
           </button>
@@ -318,7 +321,7 @@ export default function Chat() {
               onClick={handleClear}
               disabled={isLoading}
               className="px-3 py-2 text-secondary hover:text-primary text-sm border border-[var(--color-border-default)] rounded hover:border-[var(--color-border-strong)] active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]"
-              style={{ transitionDuration: "var(--duration-fast)" }}
+              style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)" }}
               title="Clear chat"
             >
               Clear
@@ -341,7 +344,7 @@ function ToolCard({ name, args, content, result, isError }: { name: string; args
       <button
         onClick={() => setExpanded(!expanded)}
         className={`tool-chip tool-chip--${chipStatus} w-full text-left cursor-pointer hover:bg-[var(--color-bg-elevated)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-ring)]`}
-        style={{ transitionDuration: "var(--duration-fast)", padding: "6px 8px" }}
+        style={{ transitionDuration: "var(--duration-default)", transitionTimingFunction: "var(--ease-out)", padding: "6px 8px" }}
       >
         <span className="tool-chip__dot" />
         <span className="relative z-[2] flex-1 truncate">{name}</span>
@@ -386,13 +389,18 @@ function StreamingText({ text }: { text: string }) {
   return (
     <span>
       {words.map((word, i) => {
-        const cls = i === total - 1
+        // Last 2 words get keys that include `total` so React remounts them
+        // when new words arrive — this re-triggers the CSS animation
+        const isNewest = i === total - 1;
+        const isRecent = i === total - 2;
+        const cls = isNewest
           ? "streaming-text__word--newest"
-          : i === total - 2
+          : isRecent
             ? "streaming-text__word--recent"
             : "";
+        const key = isNewest || isRecent ? `${i}-${total}` : i;
         return (
-          <span key={i} className={cls}>
+          <span key={key} className={cls}>
             {word}{" "}
           </span>
         );
