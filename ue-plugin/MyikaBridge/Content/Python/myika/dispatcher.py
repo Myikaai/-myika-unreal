@@ -42,8 +42,17 @@ def reload_policy():
 
 
 def dispatch(tool_name: str, args: dict) -> dict:
-    """Dispatch a tool call to its handler. Returns result dict."""
+    """Dispatch a tool call to its handler. Returns result dict.
+
+    On TOOL_NOT_FOUND, re-runs _load_tools() once before failing — so a tool
+    file dropped into myika/tools/ since the dispatcher last booted is picked
+    up transparently on first use, no UE restart required.
+    """
     handler = TOOL_REGISTRY.get(tool_name)
+    if handler is None:
+        # Tool may have been added since last load. Re-scan once.
+        _load_tools()
+        handler = TOOL_REGISTRY.get(tool_name)
     if handler is None:
         return {"ok": False, "error": {"code": "TOOL_NOT_FOUND", "message": f"Unknown tool: {tool_name}"}}
 
@@ -136,21 +145,25 @@ def reload_tools():
 
 
 def _load_tools():
-    """Auto-load all tool modules."""
-    tool_modules = [
-        "list_assets",
-        "read_file",
-        "write_file",
-        "run_python",
-        "get_compile_errors",
-        "read_blueprint_summary",
-        "create_material",
-        "add_material_expression",
-        "connect_material_expressions",
-        "connect_material_property",
-        "make_blinking_neon_material",
-    ]
-    for mod_name in tool_modules:
+    """Auto-discover and register every Python tool module under myika/tools/.
+
+    A tool is any *.py file in myika/tools/ that defines `TOOL_NAME` (str) and
+    `handle(args) -> dict`. Dropping a new file is zero-config — the dispatcher
+    picks it up on the next dispatch via the TOOL_NOT_FOUND retry path.
+    """
+    import os
+    import pkgutil
+
+    try:
+        import myika.tools as tools_pkg
+    except ImportError as e:
+        print(f"[Myika] Failed to import myika.tools package: {e}")
+        return
+
+    for mod_info in pkgutil.iter_modules(tools_pkg.__path__):
+        mod_name = mod_info.name
+        if mod_name.startswith("_"):
+            continue
         try:
             mod = importlib.import_module(f"myika.tools.{mod_name}")
             if hasattr(mod, "TOOL_NAME") and hasattr(mod, "handle"):

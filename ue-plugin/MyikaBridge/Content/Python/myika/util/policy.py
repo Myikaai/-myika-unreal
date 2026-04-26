@@ -53,6 +53,9 @@ ALL_TOOLS = (
 )
 
 
+_ALL_SENTINEL = "__all__"
+
+
 @dataclass(frozen=True)
 class Policy:
     enabled_tools: frozenset
@@ -61,6 +64,11 @@ class Policy:
     profile_name: str = "custom"
 
     def is_tool_allowed(self, tool_name: str) -> bool:
+        # Default profile uses _ALL_SENTINEL to mean "anything registered" so
+        # newly-added tools work without a policy.py edit. Strict / safe-mode
+        # remain explicit allowlists.
+        if _ALL_SENTINEL in self.enabled_tools:
+            return True
         return tool_name in self.enabled_tools
 
     def is_path_allowed(self, tool_name: str, rel_path: str) -> bool:
@@ -97,7 +105,9 @@ _STRICT_READ_PATHS = (
 
 PROFILES = {
     "default": Policy(
-        enabled_tools=frozenset(ALL_TOOLS),
+        # Open profile: anything registered in the dispatcher works. New tool
+        # files dropped into myika/tools/ are allowed without a policy edit.
+        enabled_tools=frozenset({_ALL_SENTINEL}),
         path_allowlist={},
         profile_name="default",
     ),
